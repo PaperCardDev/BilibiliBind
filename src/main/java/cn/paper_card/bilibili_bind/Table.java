@@ -23,6 +23,8 @@ class Table {
 
     private PreparedStatement statementQueryUuid = null;
 
+    private PreparedStatement statementDeleteByUuid = null;
+
     Table(@NotNull Connection connection) throws SQLException {
         this.connection = connection;
         this.create();
@@ -75,6 +77,14 @@ class Table {
         return this.statementQueryUuid;
     }
 
+    private @NotNull PreparedStatement getStatementDeleteByUuid() throws SQLException {
+        if (this.statementDeleteByUuid == null) {
+            this.statementDeleteByUuid = this.connection.prepareStatement
+                    ("DELETE FROM %s WHERE uid1=? AND uid2=?".formatted(NAME));
+        }
+        return this.statementDeleteByUuid;
+    }
+
     int insert(@NotNull UUID uuid, @NotNull String name, long uid, long time) throws SQLException {
         final PreparedStatement ps = this.getStatementInsert();
         ps.setLong(1, uuid.getMostSignificantBits());
@@ -124,6 +134,12 @@ class Table {
         return uuid;
     }
 
+    int deleteByUuid(@NotNull UUID uuid) throws SQLException {
+        final PreparedStatement ps = this.getStatementDeleteByUuid();
+        ps.setLong(1, uuid.getMostSignificantBits());
+        ps.setLong(2, uuid.getLeastSignificantBits());
+        return ps.executeUpdate();
+    }
 
     @Nullable Long queryUid(@NotNull UUID uuid) throws SQLException {
         final PreparedStatement ps = this.getStatementQueryUid();
