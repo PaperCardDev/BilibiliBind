@@ -45,6 +45,10 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
 
     private final @NotNull BilibiliUtil bilibiliUtil;
 
+    private final @NotNull ConfirmCodeApi confirmCodeApi;
+
+    private BilibiliUtil.VideoInfo videoInfo = null;
+
     public BilibiliBind() {
         this.databaseApi = this.getDatabaseApi0();
         this.mySqlConnection = this.databaseApi.getRemoteMySqlDb().getConnectionImportant();
@@ -59,6 +63,7 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
         this.mojangProfileApi = new MojangProfileApi();
 
         this.bindCodeApi = new BindCodeApiImpl(this);
+        this.confirmCodeApi = new ConfirmCodeApi(this);
         this.bilibiliUtil = new BilibiliUtil();
     }
 
@@ -94,11 +99,26 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
         return this.getConfig().getString("bvid", "");
     }
 
-    void testBilibili(@NotNull String bvid) {
+    @NotNull BilibiliUtil.VideoInfo getVideoInfo() throws Exception {
+        if (this.videoInfo == null) {
+            final String bvid = this.getBvid();
+            if (!bvid.isEmpty())
+                this.videoInfo = this.bilibiliUtil.requestVideoByBvid(bvid);
+
+            throw new Exception("服主没有配置B站视频链接");
+        }
+        return this.videoInfo;
+    }
+
+    void setVideoInfo() {
+        this.videoInfo = null;
+    }
+
+    void testBilibili() {
 
         final BilibiliUtil.VideoInfo videoInfo;
         try {
-            videoInfo = this.bilibiliUtil.requestVideoByBvid(bvid);
+            videoInfo = this.getVideoInfo();
         } catch (Exception e) {
             e.printStackTrace();
             return;
@@ -138,10 +158,7 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
         this.saveDefaultConfig();
         new TheCommand(this);
 
-        final String bvid = this.getBvid();
-        if (!bvid.isEmpty()) {
-            testBilibili(bvid);
-        }
+        this.testBilibili();
     }
 
     @Override
@@ -157,6 +174,7 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
             }
         }
         this.bindCodeApi.close();
+        this.confirmCodeApi.close();
     }
 
     @Override
@@ -293,10 +311,23 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
             return;
         }
 
+        final String bvid = this.getBvid();
+        final BilibiliUtil.VideoInfo videoInfo;
+        try {
+            videoInfo = this.getVideoInfo();
+        } catch (Exception e) {
+            e.printStackTrace();
+            event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
+            event.kickMessage(Component.text(e.toString()).color(NamedTextColor.RED));
+            return;
+        }
+
+        final int code;
+        final String codeStr;
+        final String theReply;
 
         if (bindCodeInfo == null) {
             // 没有生成绑定验证码，生成一个
-            final int code;
 
             try {
                 code = this.getBindCodeApi().createCode(id, event.getName());
@@ -311,78 +342,65 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
                 return;
             }
 
+            theReply = "白名单验证码%d已三连".formatted(code);
+
             final TextComponent.Builder text = Component.text();
             text.append(Component.text("[ Bilibili绑定 ]").color(NamedTextColor.AQUA));
+
             text.appendNewline();
+            text.append(Component.text("绑定验证码：").color(NamedTextColor.YELLOW));
+            text.append(Component.text(code).color(NamedTextColor.LIGHT_PURPLE).decorate(TextDecoration.UNDERLINED));
 
-            final String str = "白名单验证码%d".formatted(code);
 
-            text.append(Component.text(str)
-                    .color(NamedTextColor.GREEN).decorate(TextDecoration.UNDERLINED)
-                    .clickEvent(ClickEvent.copyToClipboard(str))
-                    .hoverEvent(HoverEvent.showText(Component.text("点击复制")))
+            text.appendNewline();
+            text.append(Component.text("# 自助绑定方法 #").color(NamedTextColor.AQUA));
+
+
+            text.appendNewline();
+            text.append(Component.text("请给最新宣传视频三连支持（长按点赞）并在评论区发送评论：").color(NamedTextColor.RED));
+
+            text.appendNewline();
+            text.append(Component.text(theReply).color(NamedTextColor.GOLD));
+
+
+            // todo: 不应该写死五分钟
+            text.appendNewline();
+            text.append(Component.text("验证码有效期：5分钟，重新连接立即失效").color(NamedTextColor.YELLOW));
+
+            final String link = "https://www.bilibili.com/video/" + bvid;
+
+            text.appendNewline();
+            text.append(Component.text("视频链接：").color(NamedTextColor.GREEN));
+            text.append(Component.text(link).color(NamedTextColor.GREEN).decorate(TextDecoration.UNDERLINED)
+                    .clickEvent(ClickEvent.openUrl(link))
+                    .hoverEvent(HoverEvent.showText(Component.text("点击打开")))
             );
 
-            final String bvid = this.getBvid();
-            if (!bvid.isEmpty()) {
+            text.appendNewline();
+            text.append(Component.text("视频标题：").color(NamedTextColor.GREEN));
+            text.append(Component.text(videoInfo.title()).color(NamedTextColor.GOLD));
 
-                final BilibiliUtil.VideoInfo videoInfo;
+            text.appendNewline();
+            text.append(Component.text("发布者：%s (%d)".formatted(videoInfo.ownerName(), videoInfo.ownerId())).color(NamedTextColor.GREEN));
 
-                try {
-                    videoInfo = this.bilibiliUtil.requestVideoByBvid(bvid);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    event.kickMessage(Component.text(e.toString()).color(NamedTextColor.RED));
-                    event.setLoginResult(AsyncPlayerPreLoginEvent.Result.ALLOWED);
-                    return;
-                }
+            text.appendNewline();
+            text.append(Component.text("提示：可以通过B站的关键字搜索快速找到该视频").color(NamedTextColor.GREEN));
 
-                text.appendNewline();
-                text.append(Component.text("请在最新宣传视频的评论区发送以上信息（不能只发数字）").color(NamedTextColor.RED));
-
-                final String link = "https://www.bilibili.com/video/" + bvid;
-
-                text.appendNewline();
-                text.append(Component.text("视频链接：").color(NamedTextColor.GREEN));
-                text.append(Component.text(link).color(NamedTextColor.GREEN).decorate(TextDecoration.UNDERLINED)
-                        .clickEvent(ClickEvent.openUrl(link))
-                        .hoverEvent(HoverEvent.showText(Component.text("点击打开")))
-                );
-
-                text.appendNewline();
-                text.append(Component.text("视频标题：").color(NamedTextColor.GREEN));
-                text.append(Component.text(videoInfo.title()).color(NamedTextColor.GOLD));
-
-                text.appendNewline();
-                text.append(Component.text("发布者：%s (%d)".formatted(videoInfo.ownerName(), videoInfo.ownerId())));
-
-                text.appendNewline();
-                text.append(Component.text("成功发布评论后再次连接服务器即可~").color(NamedTextColor.GREEN));
-            }
+            text.appendNewline();
+            text.append(Component.text("成功三连并发布评论之后再次连接服务器即可~").color(NamedTextColor.GREEN));
 
             event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST);
             event.kickMessage(text.build());
             return;
         }
 
+        code = bindCodeInfo.code();
+        codeStr = "%d".formatted(code);
+        theReply = "白名单验证码%d已三连".formatted(code);
+
+        // todo: 节流
+
         // 已经生成绑定验证码了，检查绑定
-        final String bvid = this.getBvid();
-        if (bvid.isEmpty()) {
-            event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
-            event.kickMessage(Component.text("服主没有配置B站视频链接").color(NamedTextColor.RED));
-            return;
-        }
-
-
-        final BilibiliUtil.VideoInfo videoInfo;
-        try {
-            videoInfo = this.bilibiliUtil.requestVideoByBvid(bvid);
-        } catch (Exception e) {
-            e.printStackTrace();
-            event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
-            event.kickMessage(Component.text(e.toString()).color(NamedTextColor.RED));
-            return;
-        }
 
         final List<BilibiliUtil.Reply> replies;
 
@@ -402,12 +420,16 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
             return Long.compare(time, time1);
         });
 
+        // 匹配的评论
         BilibiliUtil.Reply match = null;
 
-        final String str = "白名单验证码%d".formatted(bindCodeInfo.code());
-
+        final long cur = System.currentTimeMillis();
         for (BilibiliUtil.Reply reply : replies) {
-            if (str.equals(reply.message())) {
+            // 过滤超时的评论
+            // todo: 不应该写死五分钟
+            if (cur > reply.time() + 5 * 60 * 1000L) continue;
+
+            if (reply.message().contains(codeStr)) {
                 match = reply;
                 break;
             }
@@ -420,32 +442,111 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
             text.append(Component.text("[ Bilibili绑定 ]").color(NamedTextColor.AQUA));
 
             text.appendNewline();
-            text.append(Component.text("没有在指定视频评论区找到该评论：").color(NamedTextColor.RED));
+            text.append(Component.text("没有在指定的视频评论区找到你的评论：").color(NamedTextColor.RED));
 
             text.appendNewline();
-            text.append(Component.text(str).color(NamedTextColor.GOLD));
+            text.append(Component.text(theReply).color(NamedTextColor.GOLD).decorate(TextDecoration.UNDERLINED));
 
             text.appendNewline();
-            text.append(Component.text("你可以再次连接服务器获取新验证码进行重试").color(NamedTextColor.GREEN));
+            text.append(Component.text("# 可能的原因 #").color(NamedTextColor.AQUA));
+
+            text.appendNewline();
+            text.append(Component.text("大概率你弄错视频了，或者评论的格式不正确，或者没有三连").color(NamedTextColor.GOLD));
+
+            text.appendNewline();
+            text.append(Component.text("你上次的验证码已经失效，可以再次连接服务器获取新验证码进行重试").color(NamedTextColor.GREEN));
+
+            text.appendNewline();
+            text.append(Component.text("如需获取帮助，请加入管理QQ群[822315449]").color(NamedTextColor.GRAY));
 
             event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
             event.kickMessage(text.build());
             return;
         }
 
+        // 检查UID是否已经被绑定
+        {
+            final UUID uuid;
+            try {
+                uuid = this.queryUuid(match.uid());
+            } catch (SQLException e) {
+                e.printStackTrace();
+                event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
+                event.kickMessage(Component.text(e.toString()).color(NamedTextColor.RED));
+                return;
+            }
+
+            // 已经被绑定
+            if (uuid != null) {
+
+                final TextComponent.Builder text = Component.text();
+                text.append(Component.text("[ Bilibili绑定 ]").color(NamedTextColor.AQUA));
+
+                text.appendNewline();
+                text.append(Component.text("该B站账号 %s (%d) 已经被绑定！".formatted(match.name(), match.uid())).color(NamedTextColor.RED));
+
+                final OfflinePlayer offlinePlayer = this.getServer().getOfflinePlayer(uuid);
+                String name = offlinePlayer.getName();
+                if (name == null) {
+                    try {
+                        name = this.mojangProfileApi.requestByUuid(uuid).name();
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+                if (name == null) name = offlinePlayer.getUniqueId().toString();
+
+                text.appendNewline();
+                text.append(Component.text("他的游戏名: %s (%s)".formatted(name, uuid.toString())).color(NamedTextColor.GRAY));
+
+                event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
+                event.kickMessage(text.build());
+
+                return;
+            }
+        }
+
         // 检查账号等级和大会员
         if (match.level() < 4 && !match.isVip()) {
+
+            final int confirmCode;
+
+            try {
+                confirmCode = this.getConfirmCodeApi().getCode(event.getUniqueId(), event.getName(), match.uid(), match.name());
+            } catch (Exception e) {
+                e.printStackTrace();
+                event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
+                event.kickMessage(Component.text(e.toString()).color(NamedTextColor.RED));
+                return;
+            }
+
             final TextComponent.Builder text = Component.text();
             text.append(Component.text("[ Bilibili绑定 ]").color(NamedTextColor.AQUA));
 
             text.appendNewline();
-            text.append(Component.text("您的B站账号（%s）等级过低（%d级）".formatted(match.name(), match.level())).color(NamedTextColor.RED));
+            text.append(Component.text("你的B站账号等级过低，需要管理员确认B站账号").color(NamedTextColor.RED));
+
 
             text.appendNewline();
-            text.append(Component.text("只有等级达到4级或者大会员用户才能自助添加白名单").color(NamedTextColor.RED));
+            text.append(Component.text("只有等级达到4级或者大会员用户才能自助添加绑定").color(NamedTextColor.RED));
 
             text.appendNewline();
-            text.append(Component.text("可以联系管理员手动添加白名单，管理QQ群[822315449]").color(NamedTextColor.GREEN));
+            text.append(Component.text("你的B站账号：%s (%d) 等级：%d级".formatted(
+                    match.name(), match.uid(), match.level()
+            )).color(NamedTextColor.YELLOW));
+
+            text.appendNewline();
+            text.append(Component.text("你的正版角色：%s (%s)".formatted(
+                    event.getName(), event.getUniqueId().toString()
+            )).color(NamedTextColor.GRAY));
+
+            text.appendNewline();
+            text.append(Component.text("确认验证码：").color(NamedTextColor.GOLD));
+            text.append(Component.text(confirmCode).color(NamedTextColor.LIGHT_PURPLE).decorate(TextDecoration.UNDERLINED));
+            text.append(Component.text(" （长期有效，管理员使用）").color(NamedTextColor.GOLD));
+
+            text.appendNewline();
+            text.append(Component.text("请加入管理QQ群[822315449]提供此页面截图和B站账号的一些截图").color(NamedTextColor.GREEN));
 
             event.kickMessage(text.build());
             event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
@@ -475,13 +576,13 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
         text.append(Component.text("恭喜！您已成功添加白名单 :D").color(NamedTextColor.GREEN));
 
         text.appendNewline();
-        text.append(Component.text("您的B站账号：%s(%d)".formatted(match.name(), match.uid())).color(NamedTextColor.GREEN));
+        text.append(Component.text("您的B站账号：%s (%d)".formatted(match.name(), match.uid())).color(NamedTextColor.GREEN));
 
         text.appendNewline();
-        text.append(Component.text("如果绑定错误，请联系管理员").color(NamedTextColor.GREEN));
+        text.append(Component.text("如果绑定错误，请联系管理员，管理QQ群[822315449]").color(NamedTextColor.YELLOW));
 
         text.appendNewline();
-        text.append(Component.text("请重新连接服务器").color(NamedTextColor.GOLD));
+        text.append(Component.text("请重新连接服务器~").color(NamedTextColor.GOLD));
 
         event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
         event.kickMessage(text.build());
@@ -598,6 +699,10 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
 
     @NotNull BilibiliUtil getBilibiliUtil() {
         return this.bilibiliUtil;
+    }
+
+    @NotNull ConfirmCodeApi getConfirmCodeApi() {
+        return this.confirmCodeApi;
     }
 }
 

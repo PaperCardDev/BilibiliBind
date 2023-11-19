@@ -17,7 +17,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.sql.SQLException;
-import java.util.*;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
 
 class TheCommand extends TheMcCommand.HasSub {
 
@@ -41,6 +44,8 @@ class TheCommand extends TheMcCommand.HasSub {
         this.addSubCommand(new Code());
         this.addSubCommand(new Check());
         this.addSubCommand(new Reload());
+        this.addSubCommand(new BindCode());
+        this.addSubCommand(new Confirm());
     }
 
     @Override
@@ -343,6 +348,115 @@ class TheCommand extends TheMcCommand.HasSub {
         }
     }
 
+    private class BindCode extends TheMcCommand {
+
+        private final @NotNull Permission permission;
+
+        protected BindCode() {
+            super("bind-code");
+            this.permission = new Permission(TheCommand.this.permission.getName() + "." + this.getLabel());
+        }
+
+        @Override
+        protected boolean canNotExecute(@NotNull CommandSender commandSender) {
+            return !commandSender.hasPermission(this.permission);
+        }
+
+        @Override
+        public boolean onCommand(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String[] strings) {
+            final String argCode = strings.length > 0 ? strings[0] : null;
+            final String argUid = strings.length > 1 ? strings[1] : null;
+
+            if (argCode == null) {
+                plugin.sendError(commandSender, "必须提供参数：绑定验证码");
+                return true;
+            }
+
+            if (argUid == null) {
+                plugin.sendError(commandSender, "必须提供参数：B站UID");
+                return true;
+            }
+
+            final int code;
+
+            try {
+                code = Integer.parseInt(argCode);
+            } catch (NumberFormatException e) {
+                plugin.sendError(commandSender, "%s 不是正确的验证码".formatted(argCode));
+                return true;
+            }
+
+            final long uid;
+
+            try {
+                uid = Long.parseLong(argUid);
+            } catch (NumberFormatException e) {
+                plugin.sendError(commandSender, "%s 不是正确的B站UID".formatted(argUid));
+                return true;
+            }
+
+            plugin.getTaskScheduler().runTaskAsynchronously(() -> {
+
+                final BilibiliBindApi.BindCodeInfo bindCodeInfo;
+
+                try {
+                    bindCodeInfo = plugin.getBindCodeApi().takeByCode(code);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    plugin.sendError(commandSender, e.toString());
+                    return;
+                }
+
+                if (bindCodeInfo == null) {
+                    plugin.sendWarning(commandSender, "验证码 %d 不存在或已经过期失效".formatted(code));
+                    return;
+                }
+
+                final boolean added;
+
+                try {
+                    added = plugin.addOrUpdateByUuid(bindCodeInfo.uuid(), bindCodeInfo.name(), uid);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    plugin.sendError(commandSender, e.toString());
+                    return;
+                }
+
+                plugin.sendInfo(commandSender, "%s绑定成功，游戏名：%s".formatted(
+                        added ? "添加" : "更新", bindCodeInfo.name()
+                ));
+
+                plugin.sendBindInfo(commandSender, bindCodeInfo.uuid().toString(), bindCodeInfo.name(), "%d".formatted(uid));
+            });
+
+            return true;
+        }
+
+        @Override
+        public @Nullable List<String> onTabComplete(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String[] strings) {
+            if (strings.length == 1) {
+                final String argCode = strings[0];
+                if (argCode.isEmpty()) {
+                    final LinkedList<String> list = new LinkedList<>();
+                    list.add("<验证码>");
+                    return list;
+                }
+                return null;
+            }
+
+            if (strings.length == 2) {
+                final String argUid = strings[1];
+                if (argUid.isEmpty()) {
+                    final LinkedList<String> list = new LinkedList<>();
+                    list.add("<B站UID>");
+                    return list;
+                }
+            }
+
+            return null;
+        }
+    }
+
     private class Code extends TheMcCommand {
 
         private final @NotNull Permission permission;
@@ -489,7 +603,7 @@ class TheCommand extends TheMcCommand.HasSub {
                 final long aid;
 
                 try {
-                    aid = plugin.getBilibiliUtil().requestVideoByBvid(bvid).aid();
+                    aid = plugin.getVideoInfo().aid();
                 } catch (Exception e) {
                     e.printStackTrace();
                     plugin.sendError(commandSender, e.toString());
@@ -588,12 +702,115 @@ class TheCommand extends TheMcCommand.HasSub {
         @Override
         public boolean onCommand(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String[] strings) {
             plugin.reloadConfig();
+            plugin.setVideoInfo(); // 清除缓存
             plugin.sendInfo(commandSender, "已重载配置");
             return true;
         }
 
         @Override
         public @Nullable List<String> onTabComplete(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String[] strings) {
+            return null;
+        }
+    }
+
+    private class Confirm extends TheMcCommand {
+
+        private final @NotNull Permission permission;
+
+        protected Confirm() {
+            super("confirm");
+            this.permission = plugin.addPermission(TheCommand.this.permission.getName() + "." + this.getLabel());
+        }
+
+        @Override
+        protected boolean canNotExecute(@NotNull CommandSender commandSender) {
+            return !commandSender.hasPermission(this.permission);
+        }
+
+        @Override
+        public boolean onCommand(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String[] strings) {
+            final String argCode = strings.length > 0 ? strings[0] : null;
+
+            if (argCode == null) {
+                plugin.sendError(commandSender, "没有提供参数：确认验证码");
+                return true;
+            }
+
+            final int code;
+
+            try {
+                code = Integer.parseInt(argCode);
+            } catch (NumberFormatException e) {
+                plugin.sendError(commandSender, "%s 不是正确的验证码".formatted(argCode));
+                return true;
+            }
+
+            plugin.getTaskScheduler().runTaskAsynchronously(() -> {
+                final ConfirmCodeApi.Info info;
+
+                try {
+                    info = plugin.getConfirmCodeApi().takeCode(code);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    plugin.sendError(commandSender, e.toString());
+                    return;
+                }
+
+                if (info == null) {
+                    plugin.sendWarning(commandSender, "不存在的确认验证码：%d".formatted(code));
+                    return;
+                }
+
+                // 检查是否已经被绑定
+                {
+                    final UUID uuid;
+
+                    try {
+                        uuid = plugin.queryUuid(info.uid());
+                    } catch (SQLException e) {
+                        e.printStackTrace();
+                        plugin.sendError(commandSender, e.toString());
+                        return;
+                    }
+
+                    if (uuid != null) {
+                        final OfflinePlayer offlinePlayer = plugin.getServer().getOfflinePlayer(uuid);
+                        plugin.sendWarning(commandSender, "该B站UID[%d]已经被 %s 绑定".formatted(
+                                info.uid(), offlinePlayer.getName()
+                        ));
+                        return;
+                    }
+                }
+
+                final boolean added;
+
+                try {
+                    added = plugin.addOrUpdateByUuid(info.uuid(), info.name(), info.uid());
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    plugin.sendError(commandSender, e.toString());
+                    return;
+                }
+
+                plugin.sendInfo(commandSender, "%s成功，已经玩家 %s 的B站账号设置为：%s (%d)".formatted(
+                        added ? "添加" : "更新", info.name(), info.biliName(), info.uid()
+                ));
+                plugin.sendBindInfo(commandSender, info.uuid().toString(), info.name(), "%d".formatted(info.uid()));
+            });
+
+            return true;
+        }
+
+        @Override
+        public @Nullable List<String> onTabComplete(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String[] strings) {
+            if (strings.length == 1) {
+                final String code = strings[0];
+                if (code.isEmpty()) {
+                    final LinkedList<String> list = new LinkedList<>();
+                    list.add("<确认验证码>");
+                    return list;
+                }
+            }
             return null;
         }
     }

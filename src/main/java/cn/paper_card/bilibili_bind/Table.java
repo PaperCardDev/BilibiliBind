@@ -35,9 +35,10 @@ class Table {
                 CREATE TABLE IF NOT EXISTS %s (
                     uid1 BIGINT NOT NULL,
                     uid2 BIGINT NOT NULL,
-                    uid BIGINT NOT NULL,
+                    uid BIGINT UNIQUE NOT NULL,
                     name VARCHAR(24) NOT NULL,
-                    time BIGINT NOT NULL
+                    time BIGINT NOT NULL,
+                    PRIMARY KEY(uid1, uid2)
                 )""".formatted(NAME));
     }
 
