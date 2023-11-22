@@ -123,11 +123,16 @@ class ConfirmCodeApi {
 
             final PreparedStatement ps = this.getStatementUpdateByUuid();
 
+//            ("UPDATE %s SET code=?, name=?, uid=?, bname=?, time=? WHERE uid1=? AND uid2=?".formatted(NAME));
+
             ps.setInt(1, info.code());
             ps.setString(2, info.name());
             ps.setLong(3, info.uid());
             ps.setString(4, info.biliName());
             ps.setLong(5, info.time());
+
+            ps.setLong(6, info.uuid().getMostSignificantBits());
+            ps.setLong(7, info.uuid().getLeastSignificantBits());
 
             return ps.executeUpdate();
         }

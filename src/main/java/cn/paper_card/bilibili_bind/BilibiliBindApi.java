@@ -15,7 +15,7 @@ public interface BilibiliBindApi {
     @Nullable UUID queryUuid(long bilibiliUid) throws Exception;
 
     // 设置玩家的Bilibili绑定
-    boolean addOrUpdateByUuid(@NotNull UUID uuid, @NotNull String name, long bilibiliUid) throws Exception;
+    boolean addOrUpdateByUuid(@NotNull UUID uuid, @NotNull String name, long bilibiliUid, @NotNull String remark) throws Exception;
 
 
     boolean deleteBindByUuid(@NotNull UUID uuid) throws Exception;

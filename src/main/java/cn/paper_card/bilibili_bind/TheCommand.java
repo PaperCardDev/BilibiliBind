@@ -156,7 +156,7 @@ class TheCommand extends TheMcCommand.HasSub {
 
 
                 try {
-                    added = plugin.addOrUpdateByUuid(uuid, name, uid);
+                    added = plugin.addOrUpdateByUuid(uuid, name, uid, "set指令设置，%s执行".formatted(commandSender.getName()));
                 } catch (Exception e) {
                     e.printStackTrace();
                     plugin.sendError(commandSender, e.toString());
@@ -415,7 +415,7 @@ class TheCommand extends TheMcCommand.HasSub {
                 final boolean added;
 
                 try {
-                    added = plugin.addOrUpdateByUuid(bindCodeInfo.uuid(), bindCodeInfo.name(), uid);
+                    added = plugin.addOrUpdateByUuid(bindCodeInfo.uuid(), bindCodeInfo.name(), uid, "bind-code指令，%s执行".formatted(commandSender.getName()));
                 } catch (Exception e) {
                     e.printStackTrace();
                     plugin.sendError(commandSender, e.toString());
@@ -662,7 +662,7 @@ class TheCommand extends TheMcCommand.HasSub {
                 final boolean added;
 
                 try {
-                    added = plugin.addOrUpdateByUuid(player.getUniqueId(), player.getName(), uid);
+                    added = plugin.addOrUpdateByUuid(player.getUniqueId(), player.getName(), uid, "check命令，%s执行".formatted(commandSender.getName()));
                 } catch (Exception e) {
                     e.printStackTrace();
                     plugin.sendError(commandSender, e.toString());
@@ -785,7 +785,8 @@ class TheCommand extends TheMcCommand.HasSub {
                 final boolean added;
 
                 try {
-                    added = plugin.addOrUpdateByUuid(info.uuid(), info.name(), info.uid());
+                    added = plugin.addOrUpdateByUuid(info.uuid(), info.name(), info.uid(), "B站昵称：%s，confirm指令，%s执行"
+                            .formatted(info.biliName(), commandSender.getName()));
                 } catch (Exception e) {
                     e.printStackTrace();
                     plugin.sendError(commandSender, e.toString());

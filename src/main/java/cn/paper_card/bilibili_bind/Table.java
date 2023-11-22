@@ -38,6 +38,7 @@ class Table {
                     uid BIGINT UNIQUE NOT NULL,
                     name VARCHAR(24) NOT NULL,
                     time BIGINT NOT NULL,
+                    remark VARCHAR(128) NOT NULL,
                     PRIMARY KEY(uid1, uid2)
                 )""".formatted(NAME));
     }
@@ -49,7 +50,7 @@ class Table {
     private @NotNull PreparedStatement getStatementInsert() throws SQLException {
         if (this.statementInsert == null) {
             this.statementInsert = this.connection.prepareStatement
-                    ("INSERT INTO %s (uid1, uid2, uid, name, time) VALUES (?, ?, ?, ?, ?)".formatted(NAME));
+                    ("INSERT INTO %s (uid1, uid2, uid, name, time, remark) VALUES (?, ?, ?, ?, ?, ?)".formatted(NAME));
         }
         return this.statementInsert;
     }
@@ -86,13 +87,14 @@ class Table {
         return this.statementDeleteByUuid;
     }
 
-    int insert(@NotNull UUID uuid, @NotNull String name, long uid, long time) throws SQLException {
+    int insert(@NotNull UUID uuid, @NotNull String name, long uid, long time, @NotNull String remark) throws SQLException {
         final PreparedStatement ps = this.getStatementInsert();
         ps.setLong(1, uuid.getMostSignificantBits());
         ps.setLong(2, uuid.getLeastSignificantBits());
         ps.setLong(3, uid);
         ps.setString(4, name);
         ps.setLong(5, time);
+        ps.setString(6, remark);
         return ps.executeUpdate();
     }
 

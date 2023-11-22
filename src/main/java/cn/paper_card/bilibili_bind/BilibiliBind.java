@@ -104,8 +104,8 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
             final String bvid = this.getBvid();
             if (!bvid.isEmpty())
                 this.videoInfo = this.bilibiliUtil.requestVideoByBvid(bvid);
-
-            throw new Exception("服主没有配置B站视频链接");
+            else
+                throw new Exception("服主没有配置B站视频链接");
         }
         return this.videoInfo;
     }
@@ -217,7 +217,7 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
     }
 
     @Override
-    public boolean addOrUpdateByUuid(@NotNull UUID uuid, @NotNull String name, long bilibiliUid) throws Exception {
+    public boolean addOrUpdateByUuid(@NotNull UUID uuid, @NotNull String name, long bilibiliUid, @NotNull String remark) throws Exception {
         synchronized (this.mySqlConnection) {
             try {
                 final Table t = this.getTable();
@@ -230,7 +230,7 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
                 if (updated == 1) return false;
 
                 if (updated == 0) {
-                    final int inserted = t.insert(uuid, name, bilibiliUid, time);
+                    final int inserted = t.insert(uuid, name, bilibiliUid, time, remark);
                     this.mySqlConnection.setLastUseTime();
 
                     if (inserted != 1) throw new Exception("插入了%d条数据！".formatted(inserted));
@@ -543,7 +543,7 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
             text.appendNewline();
             text.append(Component.text("确认验证码：").color(NamedTextColor.GOLD));
             text.append(Component.text(confirmCode).color(NamedTextColor.LIGHT_PURPLE).decorate(TextDecoration.UNDERLINED));
-            text.append(Component.text(" （长期有效，管理员使用）").color(NamedTextColor.GOLD));
+            text.append(Component.text(" （长期有效，提供给管理员使用）").color(NamedTextColor.GOLD));
 
             text.appendNewline();
             text.append(Component.text("请加入管理QQ群[822315449]提供此页面截图和B站账号的一些截图").color(NamedTextColor.GREEN));
@@ -557,7 +557,8 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
         final boolean added;
 
         try {
-            added = this.addOrUpdateByUuid(id, event.getName(), match.uid());
+            added = this.addOrUpdateByUuid(id, event.getName(), match.uid(), "自助绑定，用户名：%s，等级：%d，大会员：%s"
+                    .formatted(match.name(), match.level(), match.isVip()));
         } catch (Exception e) {
             e.printStackTrace();
             event.kickMessage(Component.text(e.toString()).color(NamedTextColor.RED));
