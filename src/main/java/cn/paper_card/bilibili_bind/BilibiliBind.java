@@ -55,7 +55,7 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
 
         this.prefix = Component.text()
                 .append(Component.text("[").color(NamedTextColor.GOLD))
-                .append(Component.text("BILI绑定").color(NamedTextColor.DARK_AQUA))
+                .append(Component.text("Bilibili绑定").color(NamedTextColor.DARK_AQUA))
                 .append(Component.text("]").color(NamedTextColor.GOLD))
                 .build();
 
@@ -276,17 +276,82 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
         return this.bindCodeApi;
     }
 
+    private void kickWhenException(@NotNull AsyncPlayerPreLoginEvent event, @NotNull Exception e) {
+
+        e.printStackTrace();
+
+        event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
+
+        final TextComponent.Builder text = Component.text();
+
+        text.append(Component.text("[ Bilibili绑定 | 错误 ]").color(NamedTextColor.DARK_RED));
+
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            text.appendNewline();
+            text.append(Component.text(t.toString()).color(NamedTextColor.RED));
+        }
+
+        event.kickMessage(text.build());
+    }
+
+    private void kickConfirmCode(@NotNull AsyncPlayerPreLoginEvent event, @NotNull String biliName, long uid, @NotNull String level, int code) {
+        final TextComponent.Builder text = Component.text();
+
+        text.append(Component.text("[ Bilibili绑定 ]").color(NamedTextColor.AQUA));
+
+        text.appendNewline();
+        text.append(Component.text("你的B站账号等级过低，需要管理员确认B站账号").color(NamedTextColor.RED));
+
+        text.appendNewline();
+        text.append(Component.text("只有等级达到4级或者大会员用户才能自助添加绑定").color(NamedTextColor.RED));
+
+        text.appendNewline();
+        text.append(Component.text("你的B站账号：%s (%d) 等级：%s".formatted(
+                biliName, uid, level
+        )).color(NamedTextColor.YELLOW));
+
+        text.appendNewline();
+        text.append(Component.text("你的游戏角色：%s (%s)".formatted(
+                event.getName(), event.getUniqueId().toString()
+        )).color(NamedTextColor.GRAY));
+
+        text.appendNewline();
+        text.append(Component.text("确认验证码：").color(NamedTextColor.GOLD));
+        text.append(Component.text(code).color(NamedTextColor.LIGHT_PURPLE).decorate(TextDecoration.UNDERLINED));
+        text.append(Component.text(" （长期有效，提供给管理员使用）").color(NamedTextColor.GOLD));
+
+        text.appendNewline();
+        text.append(Component.text("请加入管理QQ群[822315449]提供此页面截图和B站账号的一些截图").color(NamedTextColor.GREEN));
+
+        event.kickMessage(text.build());
+        event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
+    }
+
     @Override
     public void onPreLoginCheck(@NotNull AsyncPlayerPreLoginEvent event) {
         final UUID id = event.getUniqueId();
 
+        final ConfirmCodeApi.Info confrimCodeInfo;
+
+        try {
+            confrimCodeInfo = this.getConfirmCodeApi().queryByPlayer(id);
+        } catch (Exception e) {
+            this.kickWhenException(event, e);
+            return;
+        }
+
+        if (confrimCodeInfo != null) {
+            // todo: 没有存等级？
+            this.kickConfirmCode(event, confrimCodeInfo.biliName(), confrimCodeInfo.uid(), "TODO: 忘了保存你的等级", confrimCodeInfo.code());
+            return;
+        }
+
+        // 查询绑定
         final Long uid;
         try {
             uid = this.queryBilibiliUid(id);
         } catch (SQLException e) {
-            e.printStackTrace();
-            event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
-            event.kickMessage(Component.text(e.toString()).color(NamedTextColor.RED));
+            this.kickWhenException(event, e);
             return;
         }
 
@@ -305,20 +370,17 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
         try {
             bindCodeInfo = this.getBindCodeApi().takeByUuid(id);
         } catch (Exception e) {
-            e.printStackTrace();
-            event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
-            event.kickMessage(Component.text(e.toString()).color(NamedTextColor.RED));
+            this.kickWhenException(event, e);
             return;
         }
 
+        // 获取视频信息
         final String bvid = this.getBvid();
         final BilibiliUtil.VideoInfo videoInfo;
         try {
             videoInfo = this.getVideoInfo();
         } catch (Exception e) {
-            e.printStackTrace();
-            event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
-            event.kickMessage(Component.text(e.toString()).color(NamedTextColor.RED));
+            this.kickWhenException(event, e);
             return;
         }
 
@@ -332,13 +394,7 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
             try {
                 code = this.getBindCodeApi().createCode(id, event.getName());
             } catch (Exception e) {
-                e.printStackTrace();
-                event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
-                event.kickMessage(Component.text()
-                        .append(Component.text("生成Bilibili绑定验证码失败，请尝试重新连接").color(NamedTextColor.RED))
-                        .appendNewline()
-                        .append(Component.text(e.toString()).color(NamedTextColor.RED))
-                        .build());
+                this.kickWhenException(event, e);
                 return;
             }
 
@@ -407,9 +463,7 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
         try {
             replies = this.bilibiliUtil.requestLatestReplies(videoInfo.aid());
         } catch (Exception e) {
-            e.printStackTrace();
-            event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
-            event.kickMessage(Component.text(e.toString()).color(NamedTextColor.RED));
+            this.kickWhenException(event, e);
             return;
         }
 
@@ -470,9 +524,7 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
             try {
                 uuid = this.queryUuid(match.uid());
             } catch (SQLException e) {
-                e.printStackTrace();
-                event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
-                event.kickMessage(Component.text(e.toString()).color(NamedTextColor.RED));
+                this.kickWhenException(event, e);
                 return;
             }
 
@@ -514,42 +566,10 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
             try {
                 confirmCode = this.getConfirmCodeApi().getCode(event.getUniqueId(), event.getName(), match.uid(), match.name());
             } catch (Exception e) {
-                e.printStackTrace();
-                event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
-                event.kickMessage(Component.text(e.toString()).color(NamedTextColor.RED));
+                this.kickWhenException(event, e);
                 return;
             }
-
-            final TextComponent.Builder text = Component.text();
-            text.append(Component.text("[ Bilibili绑定 ]").color(NamedTextColor.AQUA));
-
-            text.appendNewline();
-            text.append(Component.text("你的B站账号等级过低，需要管理员确认B站账号").color(NamedTextColor.RED));
-
-
-            text.appendNewline();
-            text.append(Component.text("只有等级达到4级或者大会员用户才能自助添加绑定").color(NamedTextColor.RED));
-
-            text.appendNewline();
-            text.append(Component.text("你的B站账号：%s (%d) 等级：%d级".formatted(
-                    match.name(), match.uid(), match.level()
-            )).color(NamedTextColor.YELLOW));
-
-            text.appendNewline();
-            text.append(Component.text("你的正版角色：%s (%s)".formatted(
-                    event.getName(), event.getUniqueId().toString()
-            )).color(NamedTextColor.GRAY));
-
-            text.appendNewline();
-            text.append(Component.text("确认验证码：").color(NamedTextColor.GOLD));
-            text.append(Component.text(confirmCode).color(NamedTextColor.LIGHT_PURPLE).decorate(TextDecoration.UNDERLINED));
-            text.append(Component.text(" （长期有效，提供给管理员使用）").color(NamedTextColor.GOLD));
-
-            text.appendNewline();
-            text.append(Component.text("请加入管理QQ群[822315449]提供此页面截图和B站账号的一些截图").color(NamedTextColor.GREEN));
-
-            event.kickMessage(text.build());
-            event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
+            this.kickConfirmCode(event, match.name(), match.uid(), "%d级".formatted(match.level()), confirmCode);
             return;
         }
 
@@ -560,9 +580,7 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
             added = this.addOrUpdateByUuid(id, event.getName(), match.uid(), "自助绑定，用户名：%s，等级：%d，大会员：%s"
                     .formatted(match.name(), match.level(), match.isVip()));
         } catch (Exception e) {
-            e.printStackTrace();
-            event.kickMessage(Component.text(e.toString()).color(NamedTextColor.RED));
-            event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
+            this.kickWhenException(event, e);
             return;
         }
 
@@ -577,7 +595,10 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
         text.append(Component.text("恭喜！您已成功添加白名单 :D").color(NamedTextColor.GREEN));
 
         text.appendNewline();
-        text.append(Component.text("您的B站账号：%s (%d)".formatted(match.name(), match.uid())).color(NamedTextColor.GREEN));
+        text.append(Component.text("你的B站账号：%s (%d)".formatted(match.name(), match.uid())).color(NamedTextColor.GREEN));
+
+        text.appendNewline();
+        text.append(Component.text("你的游戏角色：%s (%s)".formatted(event.getName(), event.getUniqueId().toString())).color(NamedTextColor.GRAY));
 
         text.appendNewline();
         text.append(Component.text("如果绑定错误，请联系管理员，管理QQ群[822315449]").color(NamedTextColor.YELLOW));
@@ -587,6 +608,7 @@ public final class BilibiliBind extends JavaPlugin implements BilibiliBindApi {
 
         event.setLoginResult(AsyncPlayerPreLoginEvent.Result.KICK_OTHER);
         event.kickMessage(text.build());
+
     }
 
     @NotNull Permission addPermission(@NotNull String name) {

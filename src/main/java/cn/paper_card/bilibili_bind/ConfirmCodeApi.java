@@ -325,4 +325,32 @@ class ConfirmCodeApi {
         }
 
     }
+
+    @Nullable Info queryByPlayer(@NotNull UUID uuid) throws Exception {
+        synchronized (this.mySqlConnection) {
+            try {
+                final Table t = this.getTable();
+
+                final List<Info> list = t.queryByUuid(uuid);
+                this.mySqlConnection.setLastUseTime();
+
+                int size = list.size();
+
+                if (size == 0) return null;
+
+                if (size == 1) return list.get(0);
+
+                throw new Exception("查询到了%d条数据！".formatted(size));
+
+            } catch (SQLException e) {
+                try {
+                    this.mySqlConnection.checkClosedException(e);
+                } catch (SQLException ignored) {
+                }
+                throw e;
+            }
+
+        }
+
+    }
 }
