@@ -1,5 +1,6 @@
 package cn.paper_card.bilibili_bind;
 
+import net.kyori.adventure.text.Component;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -7,19 +8,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
 
 public interface BilibiliBindApi {
-
-    // 查询一个玩家的B站UID
-    @Nullable Long queryBilibiliUid(@NotNull UUID uuid) throws Exception;
-
-    // 查询B站UID对应的玩家
-    @Nullable UUID queryUuid(long bilibiliUid) throws Exception;
-
-    // 设置玩家的Bilibili绑定
-    boolean addOrUpdateByUuid(@NotNull UUID uuid, @NotNull String name, long bilibiliUid, @NotNull String remark) throws Exception;
-
-
-    boolean deleteBindByUuid(@NotNull UUID uuid) throws Exception;
-
 
     record BindCodeInfo(
             int code,
@@ -29,20 +17,77 @@ public interface BilibiliBindApi {
     ) {
     }
 
-    interface BindCodeApi {
-        int createCode(@NotNull UUID uuid, @NotNull String name) throws Exception;
+    record BindInfo(
+            UUID uuid,
+            String name,
+            long uid,
+            String remark,
+            long time
+    ) {
+    }
 
+    class AlreadyBindException extends Exception {
+        private final @NotNull BindInfo bindInfo;
+
+        AlreadyBindException(@NotNull BindInfo bindInfo) {
+            this.bindInfo = bindInfo;
+        }
+
+        @NotNull BindInfo getBindInfo() {
+            return this.bindInfo;
+        }
+
+        @Override
+        public String getMessage() {
+            return "%s (%s) 已经绑定了B站UID：%d".formatted(bindInfo.name(), bindInfo.uuid(), bindInfo.uid());
+        }
+    }
+
+    class UidHasBeenBindException extends Exception {
+        private final @NotNull BindInfo bindInfo;
+
+        UidHasBeenBindException(@NotNull BindInfo bindInfo) {
+            this.bindInfo = bindInfo;
+        }
+
+        @NotNull BindInfo getBindInfo() {
+            return this.bindInfo;
+        }
+    }
+
+
+    interface BindService {
+        // 添加绑定
+        void addBind(@NotNull BindInfo info) throws Exception;
+
+        // 删除绑定
+        boolean removeBind(@NotNull UUID uuid, long uid) throws Exception;
+
+        @Nullable BindInfo queryByUuid(@NotNull UUID uuid) throws Exception;
+
+        @Nullable BindInfo queryByUid(long uid) throws Exception;
+    }
+
+    interface BindCodeService {
+        int createCode(@NotNull UUID uuid, @NotNull String name) throws Exception;
 
         @Nullable BindCodeInfo takeByCode(int code) throws Exception;
 
         @Nullable BindCodeInfo takeByUuid(@NotNull UUID uuid) throws Exception;
 
         int cleanOutdated() throws Exception;
-
-        int getCodeCount() throws Exception;
     }
 
-    @NotNull BindCodeApi getBindCodeApi();
+    interface PreLoginResponse {
+        @NotNull AsyncPlayerPreLoginEvent.Result result();
 
-    void onPreLoginCheck(@NotNull AsyncPlayerPreLoginEvent event);
+        @Nullable Component kickMessage();
+    }
+
+
+    @NotNull BindService getBindService();
+
+    @NotNull BindCodeService getBindCodeService();
+
+    @NotNull PreLoginResponse handlePreLogin(@NotNull UUID uuid, @NotNull String name);
 }

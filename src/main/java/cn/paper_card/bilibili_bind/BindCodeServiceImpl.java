@@ -9,14 +9,17 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Random;
 import java.util.UUID;
 
-class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
-    BindCodeApiImpl(@NotNull BilibiliBind plugin) {
-        this.mySqlConnection = plugin.getDatabaseApi().getRemoteMySqlDb().getConnectionUnimportant();
+class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
+    BindCodeServiceImpl(@NotNull DatabaseApi.MySqlConnection mySqlConnection, long maxAliveTime) {
+        this.mySqlConnection = mySqlConnection;
+        this.maxAliveTime = maxAliveTime;
+    }
+
+    BindCodeServiceImpl(@NotNull DatabaseApi.MySqlConnection mySqlConnection) {
+        this(mySqlConnection, 5 * 60 * 1000L);
     }
 
     private BindCodeTable table = null;
@@ -24,28 +27,53 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
 
     private final @NotNull DatabaseApi.MySqlConnection mySqlConnection;
 
-    private int playerCount = -1;
-
-    private static final long MAX_ALIVE_TIME = 5 * 60 * 1000L;
+    private final long maxAliveTime;
 
     private @NotNull BindCodeTable getTable() throws SQLException {
         final Connection newCon = this.mySqlConnection.getRowConnection();
-        if (this.connection == null) {
-            this.connection = newCon;
-            if (this.table != null) this.table.close();
-            this.table = new BindCodeTable(this.connection);
-            this.playerCount = this.table.queryCount();
-            return this.table;
-        } else if (this.connection == newCon) {
-            return this.table;
-        } else {
-            this.connection = newCon;
-            if (this.table != null) this.table.close();
-            this.table = new BindCodeTable(this.connection);
-            this.playerCount = this.table.queryCount();
-            return this.table;
+
+        if (this.connection != null && this.connection != newCon) return this.table;
+
+        this.connection = newCon;
+        if (this.table != null) this.table.close();
+        this.table = new BindCodeTable(this.connection);
+        return this.table;
+    }
+
+
+    int close() throws SQLException {
+        synchronized (this.mySqlConnection) {
+
+            final BindCodeTable t = this.table;
+
+            if (t == null) {
+                this.connection = null;
+                return -1;
+            }
+
+            final int clear;
+
+            try {
+                clear = this.cleanOutdated();
+                this.connection = null;
+                this.table = null;
+            } catch (SQLException e) {
+                this.connection = null;
+                this.table = null;
+                try {
+                    t.close();
+                } catch (SQLException ignored) {
+                }
+
+                throw e;
+            }
+
+            t.close();
+
+            return clear;
         }
     }
+
 
     private int randomCode() {
         final int min = 1;
@@ -55,7 +83,7 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
 
 
     @Override
-    public int createCode(@NotNull UUID uuid, @NotNull String name) throws Exception {
+    public int createCode(@NotNull UUID uuid, @NotNull String name) throws SQLException {
         final int code = this.randomCode();
         final long time = System.currentTimeMillis();
         synchronized (this.mySqlConnection) {
@@ -72,12 +100,13 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
                     final int inserted = t.insert(info);
                     this.mySqlConnection.setLastUseTime();
 
-                    this.playerCount += inserted;
-                    if (inserted != 1) throw new Exception("插入了%d条数据！".formatted(inserted));
+                    if (inserted != 1) throw new RuntimeException("插入了%d条数据！".formatted(inserted));
                     return code;
                 }
+
                 if (updated == 1) return code;
-                throw new Exception("根据一个UUID更新了多条数据！");
+
+                throw new RuntimeException("根据一个UUID更新了多条数据！");
             } catch (SQLException e) {
                 try {
                     this.mySqlConnection.checkClosedException(e);
@@ -90,36 +119,23 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
 
     // 取出一个绑定验证码
     @Override
-    public @Nullable BilibiliBindApi.BindCodeInfo takeByCode(int code) throws Exception {
+    public @Nullable BilibiliBindApi.BindCodeInfo takeByCode(int code) throws SQLException {
         synchronized (this.mySqlConnection) {
             try {
                 final BindCodeTable t = this.getTable();
-                final List<BilibiliBindApi.BindCodeInfo> list = t.queryByCode(code);
+                final BilibiliBindApi.BindCodeInfo info = t.queryByCode(code);
                 this.mySqlConnection.setLastUseTime();
 
-                final int size = list.size();
+                if (info == null) return null;
 
-                if (size == 1) {
-                    final int deleted = t.deleteByCode(code);
-                    this.mySqlConnection.setLastUseTime();
+                final int deleted = t.deleteByCode(code);
 
-                    this.playerCount -= deleted;
+                if (deleted != 1) throw new RuntimeException("删除了%d条数据！".formatted(deleted));
 
-                    if (deleted != 1) throw new Exception("删除了%d条数据！".formatted(deleted));
-
-
-                    final BilibiliBindApi.BindCodeInfo info = list.get(0);
-
-                    // 判断验证码是否过期
-                    final long delta = System.currentTimeMillis() - info.time();
-                    if (delta > MAX_ALIVE_TIME) return null;
-                    return info;
-                }
-
-                if (size == 0) return null;
-
-                throw new Exception("根据一个验证码查询到%d条数据！".formatted(size));
-
+                // 判断验证码是否过期
+                final long delta = System.currentTimeMillis() - info.time();
+                if (delta > this.maxAliveTime) return null;
+                return info;
             } catch (SQLException e) {
                 try {
                     this.mySqlConnection.checkClosedException(e);
@@ -131,33 +147,26 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
     }
 
     @Override
-    public @Nullable BilibiliBindApi.BindCodeInfo takeByUuid(@NotNull UUID uuid) throws Exception {
+    public @Nullable BilibiliBindApi.BindCodeInfo takeByUuid(@NotNull UUID uuid) throws SQLException {
         synchronized (this.mySqlConnection) {
             try {
                 final BindCodeTable t = this.getTable();
-                final List<BilibiliBindApi.BindCodeInfo> list = t.queryByUuid(uuid);
+                final BilibiliBindApi.BindCodeInfo info = t.queryByUuid(uuid);
                 this.mySqlConnection.setLastUseTime();
 
-                final int size = list.size();
-                if (size == 0) return null;
-                if (size == 1) {
-                    final BilibiliBindApi.BindCodeInfo info = list.get(0);
+                if (info == null) return null;
 
-                    // 删除
-                    final int deleted = t.deleteByCode(info.code());
-                    this.mySqlConnection.setLastUseTime();
+                // 删除
+                final int deleted = t.deleteByCode(info.code());
 
-                    if (deleted != 1) throw new Exception("删除了%d条数据！".formatted(deleted));
+                if (deleted != 1) throw new RuntimeException("删除了%d条数据！".formatted(deleted));
 
-                    // 检查是否过期
-                    // 判断验证码是否过期
-                    final long delta = System.currentTimeMillis() - info.time();
-                    if (delta > MAX_ALIVE_TIME) return null;
+                // 检查是否过期
+                // 判断验证码是否过期
+                final long delta = System.currentTimeMillis() - info.time();
+                if (delta > this.maxAliveTime) return null;
 
-                    return info;
-                }
-
-                throw new Exception("根据一个UUID查询到了%d条数据！".formatted(size));
+                return info;
 
             } catch (SQLException e) {
                 try {
@@ -171,12 +180,13 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
 
     @Override
     public int cleanOutdated() throws SQLException {
-        final long begin = System.currentTimeMillis() - MAX_ALIVE_TIME;
+        final long begin = System.currentTimeMillis() - maxAliveTime;
         synchronized (this.mySqlConnection) {
             try {
                 final BindCodeTable t = this.getTable();
                 final int deleted = t.deleteTimeBefore(begin);
-                this.playerCount -= deleted;
+                this.mySqlConnection.setLastUseTime();
+
                 return deleted;
             } catch (SQLException e) {
                 try {
@@ -184,26 +194,6 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
                 } catch (SQLException ignored) {
                 }
                 throw e;
-            }
-        }
-    }
-
-    @Override
-    public int getCodeCount() {
-        synchronized (this.mySqlConnection) {
-            return this.playerCount;
-        }
-    }
-
-    void close() {
-        synchronized (this.mySqlConnection) {
-            if (this.table != null) {
-                try {
-                    this.table.close();
-                } catch (SQLException e) {
-                    e.printStackTrace();
-                }
-                this.table = null;
             }
         }
     }
@@ -219,7 +209,6 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
 
         private PreparedStatement statementDeleteByCode = null;
 
-        private PreparedStatement statementQueryPlayerCount = null;
 
         private PreparedStatement statementDeleteTimeBefore = null;
 
@@ -265,7 +254,7 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
         private @NotNull PreparedStatement getStatementUpdateByUuid() throws SQLException {
             if (this.statementUpdateByUuid == null) {
                 this.statementUpdateByUuid = this.connection.prepareStatement("""
-                        UPDATE %s SET code=?, name=?, time=? WHERE uid1=? AND uid2=?
+                        UPDATE %s SET code=?, name=?, time=? WHERE uid1=? AND uid2=? LIMIT 1
                         """.formatted(NAME));
             }
 
@@ -274,21 +263,14 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
 
         private @NotNull PreparedStatement getStatementQueryByCode() throws SQLException {
             if (this.statementQueryByCode == null) {
-                this.statementQueryByCode = this.connection.prepareStatement("SELECT code, uid1, uid2, name, time FROM %s WHERE code=?".formatted(NAME));
+                this.statementQueryByCode = this.connection.prepareStatement("SELECT code, uid1, uid2, name, time FROM %s WHERE code=? LIMIT 1".formatted(NAME));
             }
             return this.statementQueryByCode;
         }
 
-        private @NotNull PreparedStatement getStatementQueryPlayerCount() throws SQLException {
-            if (this.statementQueryPlayerCount == null) {
-                this.statementQueryPlayerCount = this.connection.prepareStatement("SELECT count(*) FROM %s".formatted(NAME));
-            }
-            return this.statementQueryPlayerCount;
-        }
-
         private @NotNull PreparedStatement getStatementDeleteByCode() throws SQLException {
             if (this.statementDeleteByCode == null) {
-                this.statementDeleteByCode = this.connection.prepareStatement("DELETE FROM %s WHERE code=?".formatted(NAME));
+                this.statementDeleteByCode = this.connection.prepareStatement("DELETE FROM %s WHERE code=? LIMIT 1".formatted(NAME));
             }
             return this.statementDeleteByCode;
         }
@@ -303,7 +285,7 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
         private @NotNull PreparedStatement getStatementQueryByUuid() throws SQLException {
             if (this.statementQueryByUuid == null) {
                 this.statementQueryByUuid = this.connection.prepareStatement
-                        ("SELECT code, uid1, uid2, name, time FROM %s WHERE uid1=? AND uid2=?".formatted(NAME));
+                        ("SELECT code, uid1, uid2, name, time FROM %s WHERE uid1=? AND uid2=? LIMIT 1".formatted(NAME));
             }
             return this.statementQueryByUuid;
         }
@@ -329,46 +311,21 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
             return ps.executeUpdate();
         }
 
-        private @NotNull List<BilibiliBindApi.BindCodeInfo> parse(@NotNull ResultSet resultSet) throws SQLException {
-            final LinkedList<BilibiliBindApi.BindCodeInfo> list = new LinkedList<>();
+        private @NotNull BilibiliBindApi.BindCodeInfo parseRow(@NotNull ResultSet resultSet) throws SQLException {
+            final int code = resultSet.getInt(1);
+            final long uid1 = resultSet.getLong(2);
+            final long uid2 = resultSet.getLong(3);
+            final String name = resultSet.getString(4);
+            final long time = resultSet.getLong(5);
+            return new BilibiliBindApi.BindCodeInfo(code, new UUID(uid1, uid2), name, time);
+        }
+
+        private @Nullable BilibiliBindApi.BindCodeInfo parseOne(@NotNull ResultSet resultSet) throws SQLException {
+            final BilibiliBindApi.BindCodeInfo info;
             try {
                 // "SELECT code, uid1, uid2, name, time FROM %s WHERE code=?"
-                while (resultSet.next()) {
-                    final int code = resultSet.getInt(1);
-                    final long uid1 = resultSet.getLong(2);
-                    final long uid2 = resultSet.getLong(3);
-                    final String name = resultSet.getString(4);
-                    final long time = resultSet.getLong(5);
-                    list.add(new BilibiliBindApi.BindCodeInfo(code, new UUID(uid1, uid2), name, time));
-                }
-            } catch (SQLException e) {
-                try {
-                    resultSet.close();
-                } catch (SQLException ignored) {
-                }
-                throw e;
-            }
-            resultSet.close();
-
-            return list;
-        }
-
-        @NotNull List<BilibiliBindApi.BindCodeInfo> queryByCode(int code) throws SQLException {
-            final PreparedStatement ps = this.getStatementQueryByCode();
-            ps.setInt(1, code);
-            final ResultSet resultSet = ps.executeQuery();
-            return this.parse(resultSet);
-        }
-
-        int queryCount() throws SQLException {
-            final ResultSet resultSet = this.getStatementQueryPlayerCount().executeQuery();
-
-            final int c;
-
-            try {
-                if (resultSet.next()) {
-                    c = resultSet.getInt(1);
-                } else throw new SQLException("不应该没有数据！");
+                if (resultSet.next()) info = this.parseRow(resultSet);
+                else info = null;
 
                 if (resultSet.next()) throw new SQLException("不应该还有数据！");
             } catch (SQLException e) {
@@ -376,12 +333,26 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
                     resultSet.close();
                 } catch (SQLException ignored) {
                 }
-
                 throw e;
             }
-
             resultSet.close();
-            return c;
+
+            return info;
+        }
+
+        @Nullable BilibiliBindApi.BindCodeInfo queryByCode(int code) throws SQLException {
+            final PreparedStatement ps = this.getStatementQueryByCode();
+            ps.setInt(1, code);
+            final ResultSet resultSet = ps.executeQuery();
+            return this.parseOne(resultSet);
+        }
+
+        @Nullable BilibiliBindApi.BindCodeInfo queryByUuid(@NotNull UUID uuid) throws SQLException {
+            final PreparedStatement ps = this.getStatementQueryByUuid();
+            ps.setLong(1, uuid.getMostSignificantBits());
+            ps.setLong(2, uuid.getLeastSignificantBits());
+            final ResultSet resultSet = ps.executeQuery();
+            return this.parseOne(resultSet);
         }
 
         int deleteByCode(int code) throws SQLException {
@@ -396,12 +367,6 @@ class BindCodeApiImpl implements BilibiliBindApi.BindCodeApi {
             return ps.executeUpdate();
         }
 
-        @NotNull List<BilibiliBindApi.BindCodeInfo> queryByUuid(@NotNull UUID uuid) throws SQLException {
-            final PreparedStatement ps = this.getStatementQueryByUuid();
-            ps.setLong(1, uuid.getMostSignificantBits());
-            ps.setLong(2, uuid.getLeastSignificantBits());
-            final ResultSet resultSet = ps.executeQuery();
-            return this.parse(resultSet);
-        }
+
     }
 }

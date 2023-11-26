@@ -1,5 +1,6 @@
 package cn.paper_card.bilibili_bind;
 
+import cn.paper_card.MojangProfileApi;
 import cn.paper_card.mc_command.TheMcCommand;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
@@ -20,15 +21,14 @@ import java.sql.SQLException;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
-import java.util.UUID;
 
 class TheCommand extends TheMcCommand.HasSub {
 
     private final @NotNull Permission permission;
 
-    private final @NotNull BilibiliBind plugin;
+    private final @NotNull ThePlugin plugin;
 
-    TheCommand(@NotNull BilibiliBind plugin) {
+    TheCommand(@NotNull ThePlugin plugin) {
         super("bili-bind");
         this.plugin = plugin;
         this.permission = Objects.requireNonNull(plugin.getServer().getPluginManager().getPermission(this.getLabel() + "." + "command"));
@@ -38,7 +38,8 @@ class TheCommand extends TheMcCommand.HasSub {
         command.setExecutor(this);
         command.setTabCompleter(this);
 
-        this.addSubCommand(new Set());
+        this.addSubCommand(new Add());
+        this.addSubCommand(new Remove());
         this.addSubCommand(new PlayerX());
         this.addSubCommand(new Uid());
         this.addSubCommand(new Code());
@@ -53,12 +54,26 @@ class TheCommand extends TheMcCommand.HasSub {
         return !commandSender.hasPermission(this.permission);
     }
 
-    private class Set extends TheMcCommand {
+    private @NotNull List<String> tabCompletePlayerName(@NotNull String arg, @NotNull String tip) {
+        final LinkedList<String> list = new LinkedList<>();
+        if (arg.isEmpty()) {
+            list.add(tip);
+        } else {
+            for (OfflinePlayer offlinePlayer : plugin.getServer().getOfflinePlayers()) {
+                final String name = offlinePlayer.getName();
+                if (name == null) continue;
+                if (name.startsWith(arg)) list.add(name);
+            }
+        }
+        return list;
+    }
+
+    private class Add extends TheMcCommand {
 
         private final @NotNull Permission permission;
 
-        protected Set() {
-            super("set");
+        protected Add() {
+            super("add");
             this.permission = plugin.addPermission(TheCommand.this.permission.getName() + "." + this.getLabel());
         }
 
@@ -80,7 +95,7 @@ class TheCommand extends TheMcCommand.HasSub {
             }
 
             if (argUid == null) {
-                plugin.sendError(commandSender, "你必须提供参数：Bilibili的UID");
+                plugin.sendError(commandSender, "你必须提供参数：B站UID");
                 return true;
             }
 
@@ -89,81 +104,52 @@ class TheCommand extends TheMcCommand.HasSub {
             try {
                 uid = Long.parseLong(argUid);
             } catch (NumberFormatException e) {
-                plugin.sendError(commandSender, "%s 不是正确的Bilibili的UID".formatted(argUid));
+                plugin.sendError(commandSender, "%s 不是正确的B站UID".formatted(argUid));
                 return true;
             }
 
 
             plugin.getTaskScheduler().runTaskAsynchronously(() -> {
 
-                final UUID uuid = plugin.parseArgPlayer(argPlayer);
 
-                if (uuid == null) {
+                final MojangProfileApi.Profile profile = plugin.parseArgPlayer(argPlayer);
+
+                if (profile == null) {
                     plugin.sendError(commandSender, "找不到该玩家: %s".formatted(argPlayer));
                     return;
                 }
 
 
-                String name;
-
-                final OfflinePlayer offlinePlayer = plugin.getServer().getOfflinePlayer(uuid);
-                name = offlinePlayer.getName();
+                String name = profile.name();
                 if (name == null) {
                     try {
-                        name = plugin.getMojangProfileApi().requestByUuid(uuid).name();
+                        name = plugin.getMojangProfileApi().requestByUuid(profile.uuid()).name();
                     } catch (Exception e) {
-                        e.printStackTrace();
+                        plugin.getBilibiliBindApi().handleException(e);
                         plugin.sendError(commandSender, e.toString());
                         return;
                     }
                 }
 
-                if (uid == 0) { // 删除绑定
-                    final boolean deleted;
-
-                    try {
-                        deleted = plugin.deleteBindByUuid(uuid);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        plugin.sendError(commandSender, e.toString());
-                        return;
-                    }
-
-                    if (!deleted) {
-                        plugin.sendWarning(commandSender, "没有删除任何数据，可能玩家 %s 没有绑定B站账号".formatted(name));
-                        return;
-                    }
-
-                    plugin.sendInfo(commandSender, "成功删除了玩家 %s 的B站账号绑定".formatted(name));
-                    return;
-                }
-
-                final UUID uuid1;
-                try {
-                    uuid1 = plugin.queryUuid(uid);
-                } catch (SQLException e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
-                    return;
-                }
-
-                if (uuid1 != null) {
-                    plugin.sendWarning(commandSender, "B站UID[%d]已经被玩家%s绑定！".formatted(uid, plugin.getPlayerName(uuid1)));
-                    return;
-                }
-
-                final boolean added;
-
+                final BilibiliBindApi.BindInfo info = new BilibiliBindApi.BindInfo(
+                        profile.uuid(), name, uid,
+                        "add指令，%s执行".formatted(commandSender.getName()),
+                        System.currentTimeMillis()
+                );
 
                 try {
-                    added = plugin.addOrUpdateByUuid(uuid, name, uid, "set指令设置，%s执行".formatted(commandSender.getName()));
+                    plugin.getBilibiliBindApi().getBindService().addBind(info);
+                } catch (BilibiliBindApi.AlreadyBindException | BilibiliBindApi.UidHasBeenBindException e) {
+                    plugin.sendWarning(commandSender, e.getMessage());
+                    return;
                 } catch (Exception e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
                     return;
                 }
 
-                plugin.sendInfo(commandSender, "%s成功，将玩家[%s]的B站UID设置为: %d".formatted(added ? "添加" : "更新", name, uid));
+                plugin.sendInfo(commandSender, "添加绑定成功");
+                plugin.sendBindInfo(commandSender, info);
             });
 
             return true;
@@ -173,17 +159,7 @@ class TheCommand extends TheMcCommand.HasSub {
         public @Nullable List<String> onTabComplete(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String[] strings) {
             if (strings.length == 1) {
                 final String argPlayer = strings[0];
-                final LinkedList<String> list = new LinkedList<>();
-                if (argPlayer.isEmpty()) {
-                    list.add("<玩家名或UUID>");
-                } else {
-                    for (OfflinePlayer offlinePlayer : plugin.getServer().getOfflinePlayers()) {
-                        final String name = offlinePlayer.getName();
-                        if (name == null) continue;
-                        if (name.startsWith(argPlayer)) list.add(name);
-                    }
-                }
-                return list;
+                return tabCompletePlayerName(argPlayer, "<玩家名或UUID>");
             }
 
             if (strings.length == 2) {
@@ -193,7 +169,89 @@ class TheCommand extends TheMcCommand.HasSub {
                     list.add("<B站UID>");
                     return list;
                 }
+                return null;
             }
+            return null;
+        }
+    }
+
+    private class Remove extends TheMcCommand {
+
+        private final @NotNull Permission permission;
+
+        protected Remove() {
+            super("remove");
+            this.permission = plugin.addPermission(TheCommand.this.permission.getName() + '.' + this.getLabel());
+        }
+
+        @Override
+        protected boolean canNotExecute(@NotNull CommandSender commandSender) {
+            return !commandSender.hasPermission(this.permission);
+        }
+
+        @Override
+        public boolean onCommand(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String[] strings) {
+
+            // <玩家名或UUID>
+
+            final String argPlayer = strings.length > 0 ? strings[0] : null;
+
+            if (argPlayer == null) {
+                plugin.sendError(commandSender, "你必须提供参数：玩家名或UUID");
+                return true;
+            }
+
+            plugin.getTaskScheduler().runTaskAsynchronously(() -> {
+
+
+                final MojangProfileApi.Profile profile = plugin.parseArgPlayer(argPlayer);
+
+                if (profile == null) {
+                    plugin.sendError(commandSender, "找不到该玩家: %s".formatted(argPlayer));
+                    return;
+                }
+
+
+                final BilibiliBindApi.BindService service = plugin.getBilibiliBindApi().getBindService();
+
+                final BilibiliBindApi.BindInfo bindInfo;
+
+                // 查询
+                try {
+                    bindInfo = service.queryByUuid(profile.uuid());
+                } catch (Exception e) {
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
+                    return;
+                }
+
+                if (bindInfo == null) {
+                    plugin.sendWarning(commandSender, "该玩家没有绑定B站UID");
+                    return;
+                }
+
+                // 删除
+                try {
+                    service.removeBind(bindInfo.uuid(), bindInfo.uid());
+                } catch (Exception e) {
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
+                    return;
+                }
+
+                plugin.sendInfo(commandSender, "删除绑定成功");
+                plugin.sendBindInfo(commandSender, bindInfo);
+            });
+
+            return true;
+        }
+
+        @Override
+        public @Nullable List<String> onTabComplete(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String[] strings) {
+            if (strings.length == 1) {
+                return tabCompletePlayerName(strings[0], "<玩家名或UUID>");
+            }
+
             return null;
         }
     }
@@ -217,41 +275,41 @@ class TheCommand extends TheMcCommand.HasSub {
 
             final String argPlayer = strings.length > 0 ? strings[0] : null;
 
-            final UUID uuid;
+            final MojangProfileApi.Profile profile;
             if (argPlayer == null) {
                 if (commandSender instanceof Player p) {
-                    uuid = p.getUniqueId();
+                    profile = new MojangProfileApi.Profile(p.getName(), p.getUniqueId());
                 } else {
                     plugin.sendError(commandSender, "当不提供[玩家名或UUID]参数时，该命令应该由玩家来执行");
                     return true;
                 }
             } else {
-                uuid = plugin.parseArgPlayer(argPlayer);
+                profile = plugin.parseArgPlayer(argPlayer);
 
-                if (uuid == null) {
+                if (profile == null) {
                     plugin.sendError(commandSender, "找不到该玩家: %s".formatted(argPlayer));
                     return true;
                 }
             }
 
             plugin.getTaskScheduler().runTaskAsynchronously(() -> {
-                final Long uid;
+
+                final BilibiliBindApi.BindInfo bindInfo;
+
                 try {
-                    uid = plugin.queryBilibiliUid(uuid);
-                } catch (SQLException e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
+                    bindInfo = plugin.getBilibiliBindApi().getBindService().queryByUuid(profile.uuid());
+                } catch (Exception e) {
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
                     return;
                 }
 
-                final String name = plugin.getPlayerName(uuid);
-
-                if (uid == null) {
-                    plugin.sendWarning(commandSender, "该玩家[%s]没有绑定B站UID".formatted(name));
+                if (bindInfo == null) {
+                    plugin.sendWarning(commandSender, "该玩家没有绑定B站UID");
                     return;
                 }
 
-                plugin.sendBindInfo(commandSender, uuid.toString(), name, "%d".formatted(uid));
+                plugin.sendBindInfo(commandSender, bindInfo);
             });
 
             return true;
@@ -261,17 +319,7 @@ class TheCommand extends TheMcCommand.HasSub {
         public @Nullable List<String> onTabComplete(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String[] strings) {
             if (strings.length == 1) {
                 final String argPlayer = strings[0];
-                final LinkedList<String> list = new LinkedList<>();
-                if (argPlayer.isEmpty()) {
-                    list.add("[玩家名或UUID]");
-                } else {
-                    for (OfflinePlayer offlinePlayer : plugin.getServer().getOfflinePlayers()) {
-                        final String name = offlinePlayer.getName();
-                        if (name == null) continue;
-                        if (name.startsWith(argPlayer)) list.add(name);
-                    }
-                }
-                return list;
+                return tabCompletePlayerName(argPlayer, "[玩家名或UUID]");
             }
 
             return null;
@@ -312,23 +360,23 @@ class TheCommand extends TheMcCommand.HasSub {
             }
 
             plugin.getTaskScheduler().runTaskAsynchronously(() -> {
-                final UUID uuid;
+                final BilibiliBindApi.BindInfo bindInfo;
+
                 try {
-                    uuid = plugin.queryUuid(uid);
-                } catch (SQLException e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
+                    bindInfo = plugin.getBilibiliBindApi().getBindService().queryByUid(uid);
+                } catch (Exception e) {
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
                     return;
                 }
 
-                if (uuid == null) {
+
+                if (bindInfo == null) {
                     plugin.sendWarning(commandSender, "该B站UID[%d]没有被任何玩家绑定".formatted(uid));
                     return;
                 }
 
-                final String name = plugin.getPlayerName(uuid);
-
-                plugin.sendBindInfo(commandSender, uuid.toString(), name, argUid);
+                plugin.sendBindInfo(commandSender, bindInfo);
             });
 
             return true;
@@ -400,33 +448,38 @@ class TheCommand extends TheMcCommand.HasSub {
                 final BilibiliBindApi.BindCodeInfo bindCodeInfo;
 
                 try {
-                    bindCodeInfo = plugin.getBindCodeApi().takeByCode(code);
+                    bindCodeInfo = plugin.getBilibiliBindApi().getBindCodeService().takeByCode(code);
                 } catch (Exception e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
                     return;
                 }
 
                 if (bindCodeInfo == null) {
-                    plugin.sendWarning(commandSender, "验证码 %d 不存在或已经过期失效".formatted(code));
+                    plugin.sendWarning(commandSender, "验证码 %d 不存在或已过期失效".formatted(code));
                     return;
                 }
 
-                final boolean added;
+
+                final BilibiliBindApi.BindInfo bindInfo = new BilibiliBindApi.BindInfo(
+                        bindCodeInfo.uuid(), bindCodeInfo.name(),
+                        uid, "bind-code指令，%s执行".formatted(commandSender.getName()), System.currentTimeMillis()
+                );
 
                 try {
-                    added = plugin.addOrUpdateByUuid(bindCodeInfo.uuid(), bindCodeInfo.name(), uid, "bind-code指令，%s执行".formatted(commandSender.getName()));
+                    plugin.getBilibiliBindApi().getBindService().addBind(bindInfo);
+                } catch (BilibiliBindApi.AlreadyBindException | BilibiliBindApi.UidHasBeenBindException e) {
+                    plugin.sendWarning(commandSender, e.getMessage());
+                    return;
                 } catch (Exception e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
                     return;
                 }
 
-                plugin.sendInfo(commandSender, "%s绑定成功，游戏名：%s".formatted(
-                        added ? "添加" : "更新", bindCodeInfo.name()
-                ));
 
-                plugin.sendBindInfo(commandSender, bindCodeInfo.uuid().toString(), bindCodeInfo.name(), "%d".formatted(uid));
+                plugin.sendInfo(commandSender, "通过验证码添加绑定成功");
+                plugin.sendBindInfo(commandSender, bindInfo);
             });
 
             return true;
@@ -480,39 +533,35 @@ class TheCommand extends TheMcCommand.HasSub {
             }
 
             plugin.getTaskScheduler().runTaskAsynchronously(() -> {
-                final Long uid;
+
+                final BilibiliBindApi.BindInfo bindInfo;
 
                 try {
-                    uid = plugin.queryBilibiliUid(player.getUniqueId());
-                } catch (SQLException e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
+                    bindInfo = plugin.getBilibiliBindApi().getBindService().queryByUuid(player.getUniqueId());
+                } catch (Exception e) {
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
                     return;
                 }
 
-                if (uid != null) {
-                    plugin.sendWarning(commandSender, "你已经绑定了一个B站账号，无需生成绑定验证码，B站UID: %d".formatted(uid));
+                if (bindInfo != null) {
+                    plugin.sendWarning(commandSender, "你已经绑定了一个B站账号，无需生成绑定验证码");
+                    plugin.sendBindInfo(commandSender, bindInfo);
                     return;
                 }
-
 
                 final int code;
 
                 try {
-                    code = plugin.getBindCodeApi().createCode(player.getUniqueId(), player.getName());
+                    code = plugin.getBilibiliBindApi().getBindCodeService().createCode(player.getUniqueId(), player.getName());
                 } catch (Exception e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
-                    return;
-                }
-
-                if (code <= 0) {
-                    plugin.sendWarning(commandSender, "生成绑定验证码失败，请重试");
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
                     return;
                 }
 
 
-                final String str = "白名单验证码%d".formatted(code);
+                final String str = plugin.getBilibiliBindApi().getConfigManager().getReplay(code);
 
                 final TextComponent.Builder text = Component.text();
                 text.append(Component.text(str)
@@ -521,9 +570,10 @@ class TheCommand extends TheMcCommand.HasSub {
                         .hoverEvent(HoverEvent.showText(Component.text("点击复制")))
                 );
 
-                final String bvid = plugin.getBvid();
+                final String bvid = plugin.getBilibiliBindApi().getConfigManager().getBvid();
+
                 if (!bvid.isEmpty()) {
-                    final String link = "https://www.bilibili.com/video/" + bvid;
+                    final String link = BilibiliUtil.getVideoLink(bvid);
 
                     text.appendNewline();
                     text.append(Component.text("请在B站最新宣传视频评论区发送以上内容").color(NamedTextColor.GREEN));
@@ -581,99 +631,65 @@ class TheCommand extends TheMcCommand.HasSub {
                 final BilibiliBindApi.BindCodeInfo bindCodeInfo;
 
                 try {
-                    bindCodeInfo = plugin.getBindCodeApi().takeByUuid(player.getUniqueId());
+                    bindCodeInfo = plugin.getBilibiliBindApi().getBindCodeService().takeByUuid(player.getUniqueId());
                 } catch (Exception e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
                     return;
                 }
 
                 if (bindCodeInfo == null) {
-                    plugin.sendWarning(commandSender, "你尚未生成验证码或验证码已经过期失效，请尝试重新生成绑定验证码");
+                    plugin.sendWarning(commandSender, "你尚未生成验证码或验证码已过期失效，请尝试重新生成绑定验证码");
                     return;
                 }
 
                 // 扫描评论区
-                final String bvid = plugin.getBvid();
-                if (bvid.isEmpty()) {
-                    plugin.sendError(commandSender, "服主还没有配置B站视频链接");
-                    return;
-                }
-
-                final long aid;
+                final BilibiliUtil.VideoInfo videoInfo;
 
                 try {
-                    aid = plugin.getVideoInfo().aid();
+                    videoInfo = plugin.getBilibiliBindApi().getVideoInfo();
                 } catch (Exception e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
                     return;
                 }
 
                 final List<BilibiliUtil.Reply> replies;
 
                 try {
-                    replies = plugin.getBilibiliUtil().requestLatestReplies(aid);
+                    replies = plugin.getBilibiliBindApi().getBilibiliUtil().requestLatestReplies(videoInfo.aid());
                 } catch (Exception e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
                     return;
                 }
 
-                // 按时间排序
-                replies.sort((o1, o2) -> {
-                    final long time = o1.time();
-                    final long time1 = o2.time();
-                    return Long.compare(time, time1);
-                });
+                final BilibiliUtil.Reply matchReply = plugin.getBilibiliBindApi().findMatchReply(replies, bindCodeInfo.code());
 
-                // 遍历评论
-                final long cur = System.currentTimeMillis();
-                final String str = "白名单验证码%d".formatted(bindCodeInfo.code());
-
-                BilibiliUtil.Reply match = null;
-
-                for (BilibiliUtil.Reply reply : replies) {
-                    final long time = reply.time();
-                    if (cur > time + 5 * 60 * 1000L) continue;
-
-                    final String message = reply.message();
-
-                    if (str.equals(message)) {
-                        match = reply;
-                        break;
-                    }
-                }
-
-                if (match == null) {
+                if (matchReply == null) {
                     plugin.sendWarning(commandSender, "在视频的评论区未找到指定评论");
                     return;
                 }
 
-                if (match.level() < 4 && !match.isVip()) {
-                    plugin.sendWarning(commandSender, "无法绑定，你的B站账号（%s）等级过低（%d级），" +
-                            "等级达到4级或者大会员用户才可自助绑定，" +
-                            "你应该提供账号资料截图和账号安全中心截图给管理员让他手动绑定");
-                    return;
-                }
 
-                final long uid = match.uid();
-
-                final boolean added;
+                final BilibiliBindApi.BindInfo info = new BilibiliBindApi.BindInfo(player.getUniqueId(), player.getName(), matchReply.uid(),
+                        "check指令，%s执行，B站昵称：%s，等级：%d，大会员：%s".formatted(
+                                commandSender.getName(), matchReply.name(), matchReply.level(), matchReply.isVip()),
+                        System.currentTimeMillis());
 
                 try {
-                    added = plugin.addOrUpdateByUuid(player.getUniqueId(), player.getName(), uid, "check命令，%s执行".formatted(commandSender.getName()));
+                    plugin.getBilibiliBindApi().getBindService().addBind(info);
+                } catch (BilibiliBindApi.AlreadyBindException | BilibiliBindApi.UidHasBeenBindException e) {
+                    plugin.sendWarning(commandSender, e.getMessage());
+                    return;
                 } catch (Exception e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
                     return;
                 }
 
-                plugin.sendInfo(commandSender, "%s绑定成功，您的B站用户名：%s，如果错误，请联系管理员".formatted(
-                        added ? "添加" : "更新",
-                        match.name()));
-
-                plugin.sendBindInfo(commandSender, player.getUniqueId().toString(), player.getName(), "%d".formatted(uid));
+                plugin.sendInfo(commandSender, "添加绑定成功");
+                plugin.sendBindInfo(commandSender, info);
             });
 
             return true;
@@ -702,7 +718,8 @@ class TheCommand extends TheMcCommand.HasSub {
         @Override
         public boolean onCommand(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String[] strings) {
             plugin.reloadConfig();
-            plugin.setVideoInfo(); // 清除缓存
+            plugin.getBilibiliBindApi().setVideoInfo(); // 清除缓存
+            plugin.getBilibiliBindApi().getBindService().clearCache(); // 清除缓存
             plugin.sendInfo(commandSender, "已重载配置");
             return true;
         }
@@ -746,13 +763,15 @@ class TheCommand extends TheMcCommand.HasSub {
             }
 
             plugin.getTaskScheduler().runTaskAsynchronously(() -> {
-                final ConfirmCodeApi.Info info;
+
+
+                final ConfirmCodeService.Info info;
 
                 try {
-                    info = plugin.getConfirmCodeApi().takeCode(code);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
+                    info = plugin.getBilibiliBindApi().getConfirmCodeService().takeCode(code);
+                } catch (SQLException e) {
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
                     return;
                 }
 
@@ -761,42 +780,25 @@ class TheCommand extends TheMcCommand.HasSub {
                     return;
                 }
 
-                // 检查是否已经被绑定
-                {
-                    final UUID uuid;
-
-                    try {
-                        uuid = plugin.queryUuid(info.uid());
-                    } catch (SQLException e) {
-                        e.printStackTrace();
-                        plugin.sendError(commandSender, e.toString());
-                        return;
-                    }
-
-                    if (uuid != null) {
-                        final OfflinePlayer offlinePlayer = plugin.getServer().getOfflinePlayer(uuid);
-                        plugin.sendWarning(commandSender, "该B站UID[%d]已经被 %s 绑定".formatted(
-                                info.uid(), offlinePlayer.getName()
-                        ));
-                        return;
-                    }
-                }
-
-                final boolean added;
+                final BilibiliBindApi.BindInfo bindInfo = new BilibiliBindApi.BindInfo(
+                        info.uuid(), info.name(), info.uid(),
+                        "B站昵称：%s，confirm指令，%s执行".formatted(info.biliName(), commandSender.getName()),
+                        System.currentTimeMillis()
+                );
 
                 try {
-                    added = plugin.addOrUpdateByUuid(info.uuid(), info.name(), info.uid(), "B站昵称：%s，confirm指令，%s执行"
-                            .formatted(info.biliName(), commandSender.getName()));
+                    plugin.getBilibiliBindApi().getBindService().addBind(bindInfo);
+                } catch (BilibiliBindApi.AlreadyBindException | BilibiliBindApi.UidHasBeenBindException e) {
+                    plugin.sendWarning(commandSender, e.getMessage());
+                    return;
                 } catch (Exception e) {
-                    e.printStackTrace();
-                    plugin.sendError(commandSender, e.toString());
+                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.sendException(commandSender, e);
                     return;
                 }
 
-                plugin.sendInfo(commandSender, "%s成功，已经玩家 %s 的B站账号设置为：%s (%d)".formatted(
-                        added ? "添加" : "更新", info.name(), info.biliName(), info.uid()
-                ));
-                plugin.sendBindInfo(commandSender, info.uuid().toString(), info.name(), "%d".formatted(info.uid()));
+                plugin.sendInfo(commandSender, "添加绑定成功");
+                plugin.sendBindInfo(commandSender, bindInfo);
             });
 
             return true;

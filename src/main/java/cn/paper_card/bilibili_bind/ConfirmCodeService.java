@@ -2,19 +2,17 @@ package cn.paper_card.bilibili_bind;
 
 import cn.paper_card.database.DatabaseApi;
 import cn.paper_card.database.DatabaseConnection;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Random;
 import java.util.UUID;
 
-class ConfirmCodeApi {
+class ConfirmCodeService {
 
     record Info(
             int code,
@@ -32,8 +30,6 @@ class ConfirmCodeApi {
         private final Connection connection;
 
         private PreparedStatement statementInsert = null;
-
-        private PreparedStatement statementUpdateByUuid = null;
 
         private PreparedStatement statementQueryByUuid = null;
 
@@ -73,14 +69,6 @@ class ConfirmCodeApi {
             return this.statementInsert;
         }
 
-        private @NotNull PreparedStatement getStatementUpdateByUuid() throws SQLException {
-            if (this.statementUpdateByUuid == null) {
-                this.statementUpdateByUuid = this.connection.prepareStatement
-                        ("UPDATE %s SET code=?, name=?, uid=?, bname=?, time=? WHERE uid1=? AND uid2=?".formatted(NAME));
-            }
-            return this.statementUpdateByUuid;
-        }
-
         private @NotNull PreparedStatement getStatementQueryByUuid() throws SQLException {
             if (this.statementQueryByUuid == null) {
                 this.statementQueryByUuid = this.connection.prepareStatement
@@ -100,7 +88,7 @@ class ConfirmCodeApi {
         private @NotNull PreparedStatement getStatementDeleteByCode() throws SQLException {
             if (this.statementDeleteByCode == null) {
                 this.statementDeleteByCode = this.connection.prepareStatement
-                        ("DELETE FROM %s WHERE code=?".formatted(NAME));
+                        ("DELETE FROM %s WHERE code=? LIMIT 1".formatted(NAME));
             }
             return this.statementDeleteByCode;
         }
@@ -119,45 +107,31 @@ class ConfirmCodeApi {
             return ps.executeUpdate();
         }
 
-        int update(@NotNull Info info) throws SQLException {
+        private @NotNull Info parseRow(@NotNull ResultSet resultSet) throws SQLException {
+            //                ("SELECT code,uid1,uid2,name,uid,bname,time FROM %s WHERE uid1=? AND uid2=? LIMIT 1 OFFSET 0");
+            final int code = resultSet.getInt(1);
+            final long uid1 = resultSet.getLong(2);
+            final long uid2 = resultSet.getLong(3);
+            final String name = resultSet.getString(4);
 
-            final PreparedStatement ps = this.getStatementUpdateByUuid();
+            final long uid = resultSet.getLong(5);
+            final String bname = resultSet.getString(6);
 
-//            ("UPDATE %s SET code=?, name=?, uid=?, bname=?, time=? WHERE uid1=? AND uid2=?".formatted(NAME));
+            final long time = resultSet.getLong(7);
 
-            ps.setInt(1, info.code());
-            ps.setString(2, info.name());
-            ps.setLong(3, info.uid());
-            ps.setString(4, info.biliName());
-            ps.setLong(5, info.time());
-
-            ps.setLong(6, info.uuid().getMostSignificantBits());
-            ps.setLong(7, info.uuid().getLeastSignificantBits());
-
-            return ps.executeUpdate();
+            return new Info(code, new UUID(uid1, uid2), name, uid, bname, time);
         }
 
-        private @NotNull List<Info> parseAll(@NotNull ResultSet resultSet) throws SQLException {
+        private @Nullable Info parseOne(@NotNull ResultSet resultSet) throws SQLException {
 
-            final LinkedList<Info> list = new LinkedList<>();
 
+            final Info info;
             try {
-                while (resultSet.next()) {
-//                ("SELECT code,uid1,uid2,name,uid,bname,time FROM %s WHERE uid1=? AND uid2=? LIMIT 1 OFFSET 0");
-                    final int code = resultSet.getInt(1);
-                    final long uid1 = resultSet.getLong(2);
-                    final long uid2 = resultSet.getLong(3);
-                    final String name = resultSet.getString(4);
+                if (resultSet.next()) info = this.parseRow(resultSet);
+                else info = null;
 
-                    final long uid = resultSet.getLong(5);
-                    final String bname = resultSet.getString(6);
+                if (resultSet.next()) throw new SQLException("不应该还有数据！");
 
-                    final long time = resultSet.getLong(7);
-
-                    final Info info = new Info(code, new UUID(uid1, uid2), name, uid, bname, time);
-
-                    list.add(info);
-                }
             } catch (SQLException e) {
                 try {
                     resultSet.close();
@@ -168,10 +142,10 @@ class ConfirmCodeApi {
 
             resultSet.close();
 
-            return list;
+            return info;
         }
 
-        @NotNull List<Info> queryByUuid(@NotNull UUID uuid) throws SQLException {
+        @Nullable Info queryByUuid(@NotNull UUID uuid) throws SQLException {
             final PreparedStatement ps = this.getStatementQueryByUuid();
 
             ps.setLong(1, uuid.getMostSignificantBits());
@@ -179,14 +153,14 @@ class ConfirmCodeApi {
 
             final ResultSet resultSet = ps.executeQuery();
 
-            return this.parseAll(resultSet);
+            return this.parseOne(resultSet);
         }
 
-        @NotNull List<Info> queryByCode(int code) throws SQLException {
+        @Nullable Info queryByCode(int code) throws SQLException {
             final PreparedStatement ps = this.getStatementQueryByCode();
             ps.setInt(1, code);
             final ResultSet resultSet = ps.executeQuery();
-            return this.parseAll(resultSet);
+            return this.parseOne(resultSet);
         }
 
         int deleteByCode(int code) throws SQLException {
@@ -201,25 +175,19 @@ class ConfirmCodeApi {
 
     private final @NotNull DatabaseApi.MySqlConnection mySqlConnection;
 
-    ConfirmCodeApi(@NotNull BilibiliBind plugin) {
-        this.mySqlConnection = plugin.getDatabaseApi().getRemoteMySqlDb().getConnectionUnimportant();
+    ConfirmCodeService(@NotNull DatabaseApi.MySqlConnection connection) {
+        this.mySqlConnection = connection;
     }
 
     private @NotNull Table getTable() throws SQLException {
         final Connection newCon = this.mySqlConnection.getRowConnection();
-        if (this.connection == null) {
-            this.connection = newCon;
-            if (this.table != null) this.table.close();
-            this.table = new Table(this.connection);
-            return this.table;
-        } else if (this.connection == newCon) {
-            return this.table;
-        } else {
-            this.connection = newCon;
-            if (this.table != null) this.table.close();
-            this.table = new Table(this.connection);
-            return this.table;
-        }
+
+        if (this.connection != null && this.connection == newCon) return this.table;
+
+        if (this.table != null) this.table.close();
+        this.connection = newCon;
+        this.table = new Table(newCon);
+        return this.table;
     }
 
     private int randomCode() {
@@ -228,56 +196,68 @@ class ConfirmCodeApi {
         return new Random().nextInt(max - min + 1) + min;
     }
 
-    void close() {
+    void close() throws SQLException {
         synchronized (this.mySqlConnection) {
-            if (this.table != null) {
-                try {
-                    this.table.close();
-                } catch (SQLException e) {
-                    e.printStackTrace();
-                }
-                this.table = null;
+            final Table t = this.table;
+            if (t == null) {
+                this.connection = null;
+                return;
             }
+
+            this.table = null;
+            this.connection = null;
+            t.close();
         }
     }
 
 
     // 生成验证码，如果已经存在，则返回旧的，并调整创建时间
-    int getCode(@NotNull UUID uuid, @NotNull String name, long uid, @NotNull String biliName) throws Exception {
+    int getCode(@NotNull UUID uuid, @NotNull String name, long uid, @NotNull String biliName) throws SQLException {
         synchronized (this.mySqlConnection) {
             try {
                 final Table t = this.getTable();
 
-                final List<Info> list = t.queryByUuid(uuid);
+                final Info info = t.queryByUuid(uuid);
                 this.mySqlConnection.setLastUseTime();
 
-                final int size = list.size();
+                if (info != null) return info.code();
 
-                if (size == 0) {
-                    // 插入
-                    final int code = this.randomCode();
+                // 插入
+                final int code = this.randomCode();
 
-                    final int inserted = t.insert(new Info(code, uuid, name, uid, biliName, System.currentTimeMillis()));
-                    this.mySqlConnection.setLastUseTime();
+                final int inserted = t.insert(new Info(code, uuid, name, uid, biliName, System.currentTimeMillis()));
+                this.mySqlConnection.setLastUseTime();
 
-                    if (inserted != 1) throw new Exception("插入了%d条数据！".formatted(inserted));
+                if (inserted != 1) throw new RuntimeException("插入了%d条数据！".formatted(inserted));
 
-                    return code;
+                return code;
+            } catch (SQLException e) {
+                try {
+                    this.mySqlConnection.checkClosedException(e);
+                } catch (SQLException ignored) {
                 }
+                throw e;
+            }
+        }
+    }
 
-                if (size == 1) {
-                    // 更新
-                    final Info info = list.get(0);
-                    final Info newInfo = new Info(info.code(), info.uuid(), info.name(), info.uid(), info.biliName(), System.currentTimeMillis());
+    @Nullable Info takeCode(int code) throws SQLException {
+        synchronized (this.mySqlConnection) {
 
-                    final int updated = t.update(newInfo);
-                    this.mySqlConnection.setLastUseTime();
+            try {
+                final Table t = this.getTable();
 
-                    if (updated != 1) throw new Exception("更新了%d条数据！".formatted(updated));
-                    return newInfo.code();
-                }
+                final Info info = t.queryByCode(code);
+                this.mySqlConnection.setLastUseTime();
 
-                throw new Exception("查询到了%d条数据！".formatted(size));
+                if (info == null) return null;
+
+                final int deleted = t.deleteByCode(info.code());
+                this.mySqlConnection.setLastUseTime();
+
+                if (deleted != 1) throw new RuntimeException("删除了%d条数据！".formatted(deleted));
+
+                return info;
 
             } catch (SQLException e) {
                 try {
@@ -289,31 +269,15 @@ class ConfirmCodeApi {
         }
     }
 
-    @Nullable Info takeCode(int code) throws Exception {
+    @Nullable Info queryByPlayer(@NotNull UUID uuid) throws SQLException {
         synchronized (this.mySqlConnection) {
-
             try {
                 final Table t = this.getTable();
 
-                final List<Info> list = t.queryByCode(code);
+                final Info info = t.queryByUuid(uuid);
                 this.mySqlConnection.setLastUseTime();
 
-                final int size = list.size();
-
-                if (size == 1) {
-                    final Info info = list.get(0);
-
-                    final int deleted = t.deleteByCode(info.code());
-                    this.mySqlConnection.setLastUseTime();
-
-                    if (deleted != 1) throw new Exception("删除了%d条数据！".formatted(deleted));
-
-                    return info;
-                }
-
-                if (size == 0) return null;
-
-                throw new Exception("查询到了%d条数据！".formatted(size));
+                return info;
             } catch (SQLException e) {
                 try {
                     this.mySqlConnection.checkClosedException(e);
@@ -321,35 +285,6 @@ class ConfirmCodeApi {
                 }
                 throw e;
             }
-
-        }
-
-    }
-
-    @Nullable Info queryByPlayer(@NotNull UUID uuid) throws Exception {
-        synchronized (this.mySqlConnection) {
-            try {
-                final Table t = this.getTable();
-
-                final List<Info> list = t.queryByUuid(uuid);
-                this.mySqlConnection.setLastUseTime();
-
-                int size = list.size();
-
-                if (size == 0) return null;
-
-                if (size == 1) return list.get(0);
-
-                throw new Exception("查询到了%d条数据！".formatted(size));
-
-            } catch (SQLException e) {
-                try {
-                    this.mySqlConnection.checkClosedException(e);
-                } catch (SQLException ignored) {
-                }
-                throw e;
-            }
-
         }
 
     }

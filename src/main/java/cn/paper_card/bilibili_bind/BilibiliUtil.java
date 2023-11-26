@@ -30,10 +30,12 @@ class BilibiliUtil {
     }
 
     record VideoInfo(
+            String bvid,
             long aid,
             String title,
             long ownerId,
-            String ownerName
+            String ownerName,
+            String picLink
     ) {
     }
 
@@ -53,6 +55,15 @@ class BilibiliUtil {
         final String message = jsonObject.get("content").getAsJsonObject().get("message").getAsString();
 
         return new Reply(uid, name, level, isVip, message, time);
+    }
+
+    static String getVideoLink(@NotNull String bvid) {
+        return "https://www.bilibili.com/video/" + bvid;
+    }
+
+    static String getSpaceLink(long uid) {
+        // https://space.bilibili.com/391939252
+        return "https://space.bilibili.com/" + uid;
     }
 
     private static void close(@NotNull InputStream inputStream, @NotNull InputStreamReader inputStreamReader, @NotNull BufferedReader reader) throws IOException {
@@ -138,16 +149,17 @@ class BilibiliUtil {
         final JsonObject data = jsonObject.get("data").getAsJsonObject();
         final long aid = data.get("aid").getAsLong();
         final String title = data.get("title").getAsString();
+        final String bvid2 = data.get("bvid").getAsString();
+        final String picLink = data.get("pic").getAsString();
 
         final JsonObject owner = data.get("owner").getAsJsonObject();
         final long ownerId = owner.get("mid").getAsLong();
         final String ownerName = owner.get("name").getAsString();
 
-        return new VideoInfo(aid, title, ownerId, ownerName);
+        return new VideoInfo(bvid2, aid, title, ownerId, ownerName, picLink);
     }
 
     @NotNull List<Reply> requestLatestReplies(long aid) throws Exception {
-//        https://api.bilibili.com/x/v2/reply?jsonp=jsonp&pn=1&ps=8&type=1&oid=620947279&sort=0
 
         final String link = "https://api.bilibili.com/x/v2/reply?jsonp=jsonp&pn=1&ps=8&type=1&sort=0&oid=" + aid;
 
