@@ -1,6 +1,6 @@
 package cn.paper_card.bilibili_bind;
 
-import cn.paper_card.database.DatabaseApi;
+import cn.paper_card.database.api.DatabaseApi;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.event.ClickEvent;

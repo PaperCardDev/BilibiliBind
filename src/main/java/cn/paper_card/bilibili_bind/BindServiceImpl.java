@@ -1,6 +1,6 @@
 package cn.paper_card.bilibili_bind;
 
-import cn.paper_card.database.DatabaseApi;
+import cn.paper_card.database.api.DatabaseApi;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,7 +37,7 @@ class BindServiceImpl implements BilibiliBindApi.BindService {
     }
 
     private @NotNull BindTable getTable() throws SQLException {
-        final Connection newCon = this.mySqlConnection.getRowConnection();
+        final Connection newCon = this.mySqlConnection.getRawConnection();
 
         if (this.connection != null && this.connection == newCon) return this.table;
 
@@ -96,7 +96,7 @@ class BindServiceImpl implements BilibiliBindApi.BindService {
                 if (inserted != 1) throw new RuntimeException("插入了%d条数据".formatted(inserted));
             } catch (SQLException e) {
                 try {
-                    this.mySqlConnection.checkClosedException(e);
+                    this.mySqlConnection.handleException(e);
                 } catch (SQLException ignored) {
                 }
 
@@ -128,7 +128,7 @@ class BindServiceImpl implements BilibiliBindApi.BindService {
 
             } catch (SQLException e) {
                 try {
-                    this.mySqlConnection.checkClosedException(e);
+                    this.mySqlConnection.handleException(e);
                 } catch (SQLException ignored) {
                 }
                 throw e;
@@ -155,7 +155,7 @@ class BindServiceImpl implements BilibiliBindApi.BindService {
                 return info;
             } catch (SQLException e) {
                 try {
-                    this.mySqlConnection.checkClosedException(e);
+                    this.mySqlConnection.handleException(e);
                 } catch (SQLException ignored) {
                 }
                 throw e;
@@ -182,7 +182,7 @@ class BindServiceImpl implements BilibiliBindApi.BindService {
                 return info;
             } catch (SQLException e) {
                 try {
-                    this.mySqlConnection.checkClosedException(e);
+                    this.mySqlConnection.handleException(e);
                 } catch (SQLException ignored) {
                 }
                 throw e;

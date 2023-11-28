@@ -1,7 +1,7 @@
 package cn.paper_card.bilibili_bind;
 
 import cn.paper_card.MojangProfileApi;
-import cn.paper_card.database.DatabaseApi;
+import cn.paper_card.database.api.DatabaseApi;
 import com.github.Anon8281.universalScheduler.UniversalScheduler;
 import com.github.Anon8281.universalScheduler.scheduling.schedulers.TaskScheduler;
 import net.kyori.adventure.text.Component;
@@ -38,8 +38,8 @@ public class ThePlugin extends JavaPlugin {
         @NotNull ConfigManagerImpl configManager = new ConfigManagerImpl(this);
 
         this.bilibiliBindApi = new BilibiliBindApiImpl(
-                api.getRemoteMySqlDb().getConnectionImportant(),
-                api.getRemoteMySqlDb().getConnectionUnimportant(),
+                api.getRemoteMySQL().getConnectionImportant(),
+                api.getRemoteMySQL().getConnectionUnimportant(),
                 this.getLogger(),
                 configManager
         );

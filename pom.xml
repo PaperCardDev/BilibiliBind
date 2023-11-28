@@ -106,9 +106,9 @@
         </dependency>
 
         <dependency>
-            <groupId>cn.paper_card</groupId>
-            <artifactId>Database</artifactId>
-            <version>1.1</version>
+            <groupId>com.github.PaperCardDev</groupId>
+            <artifactId>database-api</artifactId>
+            <version>1.0</version>
             <scope>provided</scope>
         </dependency>
 

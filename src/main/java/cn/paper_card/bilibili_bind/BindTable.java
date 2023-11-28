@@ -1,6 +1,6 @@
 package cn.paper_card.bilibili_bind;
 
-import cn.paper_card.database.DatabaseConnection;
+import cn.paper_card.database.api.Util;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,7 +32,7 @@ class BindTable {
     }
 
     private void create() throws SQLException {
-        DatabaseConnection.createTable(this.connection, """
+        Util.executeSQL(this.connection, """
                 CREATE TABLE IF NOT EXISTS %s (
                     uid1 BIGINT NOT NULL,
                     uid2 BIGINT NOT NULL,
@@ -45,7 +45,7 @@ class BindTable {
     }
 
     void close() throws SQLException {
-        DatabaseConnection.closeAllStatements(this.getClass(), this);
+        Util.closeAllStatements(this.getClass(), this);
     }
 
     private @NotNull PreparedStatement getStatementInsert() throws SQLException {

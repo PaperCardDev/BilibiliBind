@@ -1,7 +1,7 @@
 package cn.paper_card.bilibili_bind;
 
-import cn.paper_card.database.DatabaseApi;
-import cn.paper_card.database.DatabaseConnection;
+import cn.paper_card.database.api.DatabaseApi;
+import cn.paper_card.database.api.Util;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -43,7 +43,7 @@ class ConfirmCodeService {
         }
 
         private void create() throws SQLException {
-            DatabaseConnection.createTable(this.connection, """
+            Util.executeSQL(this.connection, """
                     CREATE TABLE IF NOT EXISTS %s (
                         code INT NOT NULL UNIQUE,
                         uid1 BIGINT NOT NULL,
@@ -57,7 +57,7 @@ class ConfirmCodeService {
         }
 
         void close() throws SQLException {
-            DatabaseConnection.closeAllStatements(this.getClass(), this);
+            Util.closeAllStatements(this.getClass(), this);
         }
 
 
@@ -180,7 +180,7 @@ class ConfirmCodeService {
     }
 
     private @NotNull Table getTable() throws SQLException {
-        final Connection newCon = this.mySqlConnection.getRowConnection();
+        final Connection newCon = this.mySqlConnection.getRawConnection();
 
         if (this.connection != null && this.connection == newCon) return this.table;
 
@@ -233,7 +233,7 @@ class ConfirmCodeService {
                 return code;
             } catch (SQLException e) {
                 try {
-                    this.mySqlConnection.checkClosedException(e);
+                    this.mySqlConnection.handleException(e);
                 } catch (SQLException ignored) {
                 }
                 throw e;
@@ -261,7 +261,7 @@ class ConfirmCodeService {
 
             } catch (SQLException e) {
                 try {
-                    this.mySqlConnection.checkClosedException(e);
+                    this.mySqlConnection.handleException(e);
                 } catch (SQLException ignored) {
                 }
                 throw e;
@@ -280,7 +280,7 @@ class ConfirmCodeService {
                 return info;
             } catch (SQLException e) {
                 try {
-                    this.mySqlConnection.checkClosedException(e);
+                    this.mySqlConnection.handleException(e);
                 } catch (SQLException ignored) {
                 }
                 throw e;

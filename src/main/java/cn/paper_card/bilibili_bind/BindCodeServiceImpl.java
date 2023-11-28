@@ -1,7 +1,7 @@
 package cn.paper_card.bilibili_bind;
 
-import cn.paper_card.database.DatabaseApi;
-import cn.paper_card.database.DatabaseConnection;
+import cn.paper_card.database.api.DatabaseApi;
+import cn.paper_card.database.api.Util;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,7 +30,7 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
     private final long maxAliveTime;
 
     private @NotNull BindCodeTable getTable() throws SQLException {
-        final Connection newCon = this.mySqlConnection.getRowConnection();
+        final Connection newCon = this.mySqlConnection.getRawConnection();
 
         if (this.connection != null && this.connection != newCon) return this.table;
 
@@ -109,7 +109,7 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
                 throw new RuntimeException("根据一个UUID更新了多条数据！");
             } catch (SQLException e) {
                 try {
-                    this.mySqlConnection.checkClosedException(e);
+                    this.mySqlConnection.handleException(e);
                 } catch (SQLException ignored) {
                 }
                 throw e;
@@ -138,7 +138,7 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
                 return info;
             } catch (SQLException e) {
                 try {
-                    this.mySqlConnection.checkClosedException(e);
+                    this.mySqlConnection.handleException(e);
                 } catch (SQLException ignored) {
                 }
                 throw e;
@@ -170,7 +170,7 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
 
             } catch (SQLException e) {
                 try {
-                    this.mySqlConnection.checkClosedException(e);
+                    this.mySqlConnection.handleException(e);
                 } catch (SQLException ignored) {
                 }
                 throw e;
@@ -190,7 +190,7 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
                 return deleted;
             } catch (SQLException e) {
                 try {
-                    this.mySqlConnection.checkClosedException(e);
+                    this.mySqlConnection.handleException(e);
                 } catch (SQLException ignored) {
                 }
                 throw e;
@@ -234,11 +234,11 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
                         time    BIGINT NOT NULL,
                         PRIMARY KEY(uid1, uid2)
                     )""".formatted(NAME);
-            DatabaseConnection.createTable(connection, sql2);
+            Util.executeSQL(connection, sql2);
         }
 
         void close() throws SQLException {
-            DatabaseConnection.closeAllStatements(this.getClass(), this);
+            Util.closeAllStatements(this.getClass(), this);
         }
 
         private @NotNull PreparedStatement getStatementInsert() throws SQLException {
