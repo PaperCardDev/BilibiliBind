@@ -22,7 +22,7 @@ public class TestBindServiceImpl {
     }
 
     @After
-    public void cleanup() throws SQLException {
+    public void cleanup() {
         connection.close();
     }
 
