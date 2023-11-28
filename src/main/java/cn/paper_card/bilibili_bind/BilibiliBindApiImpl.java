@@ -1,5 +1,8 @@
 package cn.paper_card.bilibili_bind;
 
+import cn.paper_card.bilibili_bind.api.*;
+import cn.paper_card.bilibili_bind.api.exception.AlreadyBoundException;
+import cn.paper_card.bilibili_bind.api.exception.UidHasBeenBoundException;
 import cn.paper_card.database.api.DatabaseApi;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
@@ -7,15 +10,14 @@ import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
-import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
 
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.UUID;
-import java.util.logging.Logger;
 
 class BilibiliBindApiImpl implements BilibiliBindApi {
 
@@ -57,8 +59,8 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         return this.videoInfo;
     }
 
-    void handleException(@NotNull Exception e) {
-        this.logger.throwing(this.getClass().getSimpleName(), "handleException", e);
+    void handleException(@NotNull String msg, @NotNull Throwable e) {
+        this.logger.error(msg, e);
     }
 
     private @NotNull Logger getLogger() {
@@ -75,7 +77,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         try {
             videoInfo = this.getVideoInfo();
         } catch (Exception e) {
-            this.handleException(e);
+            this.handleException("getVideoInfo", e);
             return;
         }
 
@@ -90,7 +92,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         try {
             replies = this.bilibiliUtil.requestLatestReplies(videoInfo.aid());
         } catch (Exception e) {
-            this.handleException(e);
+            this.handleException("requestLatestReplies", e);
             return;
         }
 
@@ -134,26 +136,26 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         try {
             this.bindService.close();
         } catch (SQLException e) {
-            this.handleException(e);
+            this.handleException("closeBindService", e);
         }
 
         try {
             final int clean = this.bindCodeService.close();
             this.getLogger().info("清理了%d个过期的验证码".formatted(clean));
         } catch (SQLException e) {
-            this.handleException(e);
+            this.handleException("closeBindCodeService", e);
         }
 
         try {
             this.confirmCodeService.close();
         } catch (SQLException e) {
-            this.handleException(e);
+            this.handleException("closeConfirmCodeService", e);
         }
     }
 
     private @NotNull PreLoginResponse kickWhenException(@NotNull Exception e) {
 
-        this.handleException(e);
+        this.handleException("whenPreLogin", e);
 
         final TextComponent.Builder text = Component.text();
 
@@ -164,7 +166,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
             text.append(Component.text(t.toString()).color(NamedTextColor.RED));
         }
 
-        return new PreLoginResponseImpl(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, text.build());
+        return new PreLoginResponse(false, text.build());
     }
 
     private @NotNull PreLoginResponse kickConfirmCode(@NotNull String name, @NotNull UUID uuid, @NotNull String biliName, long uid, @NotNull String level, int code) {
@@ -197,7 +199,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         text.appendNewline();
         text.append(Component.text("请加入管理QQ群[822315449]提供此页面截图和B站账号的一些截图").color(NamedTextColor.GREEN));
 
-        return new PreLoginResponseImpl(AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST, text.build());
+        return new PreLoginResponse(false, text.build());
     }
 
 
@@ -251,7 +253,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         text.appendNewline();
         text.append(Component.text("成功三连并发布评论之后再次连接服务器即可~").color(NamedTextColor.GREEN));
 
-        return new PreLoginResponseImpl(AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST, text.build());
+        return new PreLoginResponse(false, text.build());
     }
 
     private @NotNull PreLoginResponse kickReplyNotFound(int code) {
@@ -281,7 +283,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         text.appendNewline();
         text.append(Component.text("如需获取帮助，请加入管理QQ群[822315449]").color(NamedTextColor.GRAY));
 
-        return new PreLoginResponseImpl(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, text.build());
+        return new PreLoginResponse(false, text.build());
     }
 
     private @NotNull PreLoginResponse kickUidHasBeenBind(@NotNull BindInfo info, @NotNull String biliName) {
@@ -296,7 +298,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         text.appendNewline();
         text.append(Component.text("他的游戏角色：%s (%s)".formatted(info.name(), info.uuid().toString())).color(NamedTextColor.GRAY));
 
-        return new PreLoginResponseImpl(AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST, text.build());
+        return new PreLoginResponse(false, text.build());
     }
 
     private @NotNull PreLoginResponse kickBindOk(@NotNull String name, @NotNull String uuid, @NotNull String biliName, @NotNull String uid) {
@@ -319,7 +321,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         text.appendNewline();
         text.append(Component.text("请重新连接服务器~").color(NamedTextColor.GOLD));
 
-        return new PreLoginResponseImpl(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, text.build());
+        return new PreLoginResponse(false, text.build());
     }
 
 
@@ -386,7 +388,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
 
         // 已经绑定
         if (bindInfo != null) {
-            return new PreLoginResponseImpl(AsyncPlayerPreLoginEvent.Result.ALLOWED, null);
+            return new PreLoginResponse(true, null);
         }
 
         // 没有绑定B站账号
@@ -462,10 +464,10 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
                     "验证码自助绑定，昵称：%s，等级：%d，大会员：%s".formatted(matchReply.name(), matchReply.level(), matchReply.isVip()),
                     System.currentTimeMillis()));
 
-        } catch (AlreadyBindException e) {
+        } catch (AlreadyBoundException e) {
             // 不应该出现的
             return this.kickWhenException(e);
-        } catch (UidHasBeenBindException e) {
+        } catch (UidHasBeenBoundException e) {
             return this.kickUidHasBeenBind(e.getBindInfo(), matchReply.name());
         } catch (SQLException e) {
             return this.kickWhenException(e);

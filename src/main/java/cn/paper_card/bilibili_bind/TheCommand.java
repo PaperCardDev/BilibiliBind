@@ -1,6 +1,11 @@
 package cn.paper_card.bilibili_bind;
 
 import cn.paper_card.MojangProfileApi;
+import cn.paper_card.bilibili_bind.api.BindCodeInfo;
+import cn.paper_card.bilibili_bind.api.BindInfo;
+import cn.paper_card.bilibili_bind.api.BindService;
+import cn.paper_card.bilibili_bind.api.exception.AlreadyBoundException;
+import cn.paper_card.bilibili_bind.api.exception.UidHasBeenBoundException;
 import cn.paper_card.mc_command.TheMcCommand;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
@@ -125,13 +130,13 @@ class TheCommand extends TheMcCommand.HasSub {
                     try {
                         name = plugin.getMojangProfileApi().requestByUuid(profile.uuid()).name();
                     } catch (Exception e) {
-                        plugin.getBilibiliBindApi().handleException(e);
+                        plugin.getBilibiliBindApi().handleException("mojang profile api request by uuid", e);
                         plugin.sendError(commandSender, e.toString());
                         return;
                     }
                 }
 
-                final BilibiliBindApi.BindInfo info = new BilibiliBindApi.BindInfo(
+                final BindInfo info = new BindInfo(
                         profile.uuid(), name, uid,
                         "add指令，%s执行".formatted(commandSender.getName()),
                         System.currentTimeMillis()
@@ -139,11 +144,11 @@ class TheCommand extends TheMcCommand.HasSub {
 
                 try {
                     plugin.getBilibiliBindApi().getBindService().addBind(info);
-                } catch (BilibiliBindApi.AlreadyBindException | BilibiliBindApi.UidHasBeenBindException e) {
+                } catch (AlreadyBoundException | UidHasBeenBoundException e) {
                     plugin.sendWarning(commandSender, e.getMessage());
                     return;
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("bind service add bind", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -212,15 +217,15 @@ class TheCommand extends TheMcCommand.HasSub {
                 }
 
 
-                final BilibiliBindApi.BindService service = plugin.getBilibiliBindApi().getBindService();
+                final BindService service = plugin.getBilibiliBindApi().getBindService();
 
-                final BilibiliBindApi.BindInfo bindInfo;
+                final BindInfo bindInfo;
 
                 // 查询
                 try {
                     bindInfo = service.queryByUuid(profile.uuid());
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("bind service query by uuid", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -234,7 +239,7 @@ class TheCommand extends TheMcCommand.HasSub {
                 try {
                     service.removeBind(bindInfo.uuid(), bindInfo.uid());
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("bind service remove binding", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -294,12 +299,12 @@ class TheCommand extends TheMcCommand.HasSub {
 
             plugin.getTaskScheduler().runTaskAsynchronously(() -> {
 
-                final BilibiliBindApi.BindInfo bindInfo;
+                final BindInfo bindInfo;
 
                 try {
                     bindInfo = plugin.getBilibiliBindApi().getBindService().queryByUuid(profile.uuid());
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("player command -> bind service -> query by uuid", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -360,12 +365,12 @@ class TheCommand extends TheMcCommand.HasSub {
             }
 
             plugin.getTaskScheduler().runTaskAsynchronously(() -> {
-                final BilibiliBindApi.BindInfo bindInfo;
+                final BindInfo bindInfo;
 
                 try {
                     bindInfo = plugin.getBilibiliBindApi().getBindService().queryByUid(uid);
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("uid command -> bind service -> query by uid", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -445,12 +450,12 @@ class TheCommand extends TheMcCommand.HasSub {
 
             plugin.getTaskScheduler().runTaskAsynchronously(() -> {
 
-                final BilibiliBindApi.BindCodeInfo bindCodeInfo;
+                final BindCodeInfo bindCodeInfo;
 
                 try {
                     bindCodeInfo = plugin.getBilibiliBindApi().getBindCodeService().takeByCode(code);
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("bind-code command -> bind code service -> take by code", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -461,18 +466,18 @@ class TheCommand extends TheMcCommand.HasSub {
                 }
 
 
-                final BilibiliBindApi.BindInfo bindInfo = new BilibiliBindApi.BindInfo(
+                final BindInfo bindInfo = new BindInfo(
                         bindCodeInfo.uuid(), bindCodeInfo.name(),
                         uid, "bind-code指令，%s执行".formatted(commandSender.getName()), System.currentTimeMillis()
                 );
 
                 try {
                     plugin.getBilibiliBindApi().getBindService().addBind(bindInfo);
-                } catch (BilibiliBindApi.AlreadyBindException | BilibiliBindApi.UidHasBeenBindException e) {
+                } catch (AlreadyBoundException | UidHasBeenBoundException e) {
                     plugin.sendWarning(commandSender, e.getMessage());
                     return;
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("bind-code command -> bind service -> add bind", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -534,12 +539,12 @@ class TheCommand extends TheMcCommand.HasSub {
 
             plugin.getTaskScheduler().runTaskAsynchronously(() -> {
 
-                final BilibiliBindApi.BindInfo bindInfo;
+                final BindInfo bindInfo;
 
                 try {
                     bindInfo = plugin.getBilibiliBindApi().getBindService().queryByUuid(player.getUniqueId());
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("code command -> bind service -> query by uuid", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -555,7 +560,7 @@ class TheCommand extends TheMcCommand.HasSub {
                 try {
                     code = plugin.getBilibiliBindApi().getBindCodeService().createCode(player.getUniqueId(), player.getName());
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("code command -> bind code service -> create code", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -628,12 +633,12 @@ class TheCommand extends TheMcCommand.HasSub {
             }
 
             plugin.getTaskScheduler().runTaskAsynchronously(() -> {
-                final BilibiliBindApi.BindCodeInfo bindCodeInfo;
+                final BindCodeInfo bindCodeInfo;
 
                 try {
                     bindCodeInfo = plugin.getBilibiliBindApi().getBindCodeService().takeByUuid(player.getUniqueId());
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("check command -> bind code service -> take by uuid", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -649,7 +654,7 @@ class TheCommand extends TheMcCommand.HasSub {
                 try {
                     videoInfo = plugin.getBilibiliBindApi().getVideoInfo();
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("check command -> getVideoInfo", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -659,7 +664,7 @@ class TheCommand extends TheMcCommand.HasSub {
                 try {
                     replies = plugin.getBilibiliBindApi().getBilibiliUtil().requestLatestReplies(videoInfo.aid());
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("check command -> requestLatestReplies", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -672,18 +677,18 @@ class TheCommand extends TheMcCommand.HasSub {
                 }
 
 
-                final BilibiliBindApi.BindInfo info = new BilibiliBindApi.BindInfo(player.getUniqueId(), player.getName(), matchReply.uid(),
+                final BindInfo info = new BindInfo(player.getUniqueId(), player.getName(), matchReply.uid(),
                         "check指令，%s执行，B站昵称：%s，等级：%d，大会员：%s".formatted(
                                 commandSender.getName(), matchReply.name(), matchReply.level(), matchReply.isVip()),
                         System.currentTimeMillis());
 
                 try {
                     plugin.getBilibiliBindApi().getBindService().addBind(info);
-                } catch (BilibiliBindApi.AlreadyBindException | BilibiliBindApi.UidHasBeenBindException e) {
+                } catch (AlreadyBoundException | UidHasBeenBoundException e) {
                     plugin.sendWarning(commandSender, e.getMessage());
                     return;
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("check command -> bind service -> add bind", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -770,7 +775,7 @@ class TheCommand extends TheMcCommand.HasSub {
                 try {
                     info = plugin.getBilibiliBindApi().getConfirmCodeService().takeCode(code);
                 } catch (SQLException e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("confirm command -> confirm code service -> take code", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -780,7 +785,7 @@ class TheCommand extends TheMcCommand.HasSub {
                     return;
                 }
 
-                final BilibiliBindApi.BindInfo bindInfo = new BilibiliBindApi.BindInfo(
+                final BindInfo bindInfo = new BindInfo(
                         info.uuid(), info.name(), info.uid(),
                         "B站昵称：%s，confirm指令，%s执行".formatted(info.biliName(), commandSender.getName()),
                         System.currentTimeMillis()
@@ -788,11 +793,11 @@ class TheCommand extends TheMcCommand.HasSub {
 
                 try {
                     plugin.getBilibiliBindApi().getBindService().addBind(bindInfo);
-                } catch (BilibiliBindApi.AlreadyBindException | BilibiliBindApi.UidHasBeenBindException e) {
+                } catch (AlreadyBoundException | UidHasBeenBoundException e) {
                     plugin.sendWarning(commandSender, e.getMessage());
                     return;
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException(e);
+                    plugin.getBilibiliBindApi().handleException("confirm command -> bind service -> add bind", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }

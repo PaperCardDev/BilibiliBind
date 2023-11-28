@@ -1,5 +1,7 @@
 package cn.paper_card.bilibili_bind;
 
+import cn.paper_card.bilibili_bind.api.BindCodeInfo;
+import cn.paper_card.bilibili_bind.api.BindCodeService;
 import cn.paper_card.database.api.DatabaseApi;
 import cn.paper_card.database.api.Util;
 import org.jetbrains.annotations.NotNull;
@@ -12,7 +14,7 @@ import java.sql.SQLException;
 import java.util.Random;
 import java.util.UUID;
 
-class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
+class BindCodeServiceImpl implements BindCodeService {
     BindCodeServiceImpl(@NotNull DatabaseApi.MySqlConnection mySqlConnection, long maxAliveTime) {
         this.mySqlConnection = mySqlConnection;
         this.maxAliveTime = maxAliveTime;
@@ -32,7 +34,7 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
     private @NotNull BindCodeTable getTable() throws SQLException {
         final Connection newCon = this.mySqlConnection.getRawConnection();
 
-        if (this.connection != null && this.connection != newCon) return this.table;
+        if (this.connection != null && this.connection == newCon) return this.table;
 
         this.connection = newCon;
         if (this.table != null) this.table.close();
@@ -92,7 +94,7 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
 
                 // 数据库保证：防止验证码重复
 
-                final BilibiliBindApi.BindCodeInfo info = new BilibiliBindApi.BindCodeInfo(code, uuid, name, time);
+                final BindCodeInfo info = new BindCodeInfo(code, uuid, name, time);
                 final int updated = t.updateByUuid(info);
                 this.mySqlConnection.setLastUseTime();
 
@@ -119,11 +121,11 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
 
     // 取出一个绑定验证码
     @Override
-    public @Nullable BilibiliBindApi.BindCodeInfo takeByCode(int code) throws SQLException {
+    public @Nullable BindCodeInfo takeByCode(int code) throws SQLException {
         synchronized (this.mySqlConnection) {
             try {
                 final BindCodeTable t = this.getTable();
-                final BilibiliBindApi.BindCodeInfo info = t.queryByCode(code);
+                final BindCodeInfo info = t.queryByCode(code);
                 this.mySqlConnection.setLastUseTime();
 
                 if (info == null) return null;
@@ -147,11 +149,11 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
     }
 
     @Override
-    public @Nullable BilibiliBindApi.BindCodeInfo takeByUuid(@NotNull UUID uuid) throws SQLException {
+    public @Nullable BindCodeInfo takeByUuid(@NotNull UUID uuid) throws SQLException {
         synchronized (this.mySqlConnection) {
             try {
                 final BindCodeTable t = this.getTable();
-                final BilibiliBindApi.BindCodeInfo info = t.queryByUuid(uuid);
+                final BindCodeInfo info = t.queryByUuid(uuid);
                 this.mySqlConnection.setLastUseTime();
 
                 if (info == null) return null;
@@ -290,7 +292,7 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
             return this.statementQueryByUuid;
         }
 
-        int insert(@NotNull BilibiliBindApi.BindCodeInfo info) throws SQLException {
+        int insert(@NotNull BindCodeInfo info) throws SQLException {
             final PreparedStatement ps = this.getStatementInsert();
             ps.setInt(1, info.code());
             ps.setLong(2, info.uuid().getMostSignificantBits());
@@ -300,7 +302,7 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
             return ps.executeUpdate();
         }
 
-        int updateByUuid(@NotNull BilibiliBindApi.BindCodeInfo info) throws SQLException {
+        int updateByUuid(@NotNull BindCodeInfo info) throws SQLException {
             final PreparedStatement ps = this.getStatementUpdateByUuid();
             // UPDATE %s SET code=?, name=?, time=? WHERE uid1=? AND uid2=?
             ps.setInt(1, info.code());
@@ -311,17 +313,17 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
             return ps.executeUpdate();
         }
 
-        private @NotNull BilibiliBindApi.BindCodeInfo parseRow(@NotNull ResultSet resultSet) throws SQLException {
+        private @NotNull BindCodeInfo parseRow(@NotNull ResultSet resultSet) throws SQLException {
             final int code = resultSet.getInt(1);
             final long uid1 = resultSet.getLong(2);
             final long uid2 = resultSet.getLong(3);
             final String name = resultSet.getString(4);
             final long time = resultSet.getLong(5);
-            return new BilibiliBindApi.BindCodeInfo(code, new UUID(uid1, uid2), name, time);
+            return new BindCodeInfo(code, new UUID(uid1, uid2), name, time);
         }
 
-        private @Nullable BilibiliBindApi.BindCodeInfo parseOne(@NotNull ResultSet resultSet) throws SQLException {
-            final BilibiliBindApi.BindCodeInfo info;
+        private @Nullable BindCodeInfo parseOne(@NotNull ResultSet resultSet) throws SQLException {
+            final BindCodeInfo info;
             try {
                 // "SELECT code, uid1, uid2, name, time FROM %s WHERE code=?"
                 if (resultSet.next()) info = this.parseRow(resultSet);
@@ -340,14 +342,14 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
             return info;
         }
 
-        @Nullable BilibiliBindApi.BindCodeInfo queryByCode(int code) throws SQLException {
+        @Nullable BindCodeInfo queryByCode(int code) throws SQLException {
             final PreparedStatement ps = this.getStatementQueryByCode();
             ps.setInt(1, code);
             final ResultSet resultSet = ps.executeQuery();
             return this.parseOne(resultSet);
         }
 
-        @Nullable BilibiliBindApi.BindCodeInfo queryByUuid(@NotNull UUID uuid) throws SQLException {
+        @Nullable BindCodeInfo queryByUuid(@NotNull UUID uuid) throws SQLException {
             final PreparedStatement ps = this.getStatementQueryByUuid();
             ps.setLong(1, uuid.getMostSignificantBits());
             ps.setLong(2, uuid.getLeastSignificantBits());
@@ -366,7 +368,5 @@ class BindCodeServiceImpl implements BilibiliBindApi.BindCodeService {
             ps.setLong(1, time);
             return ps.executeUpdate();
         }
-
-
     }
 }

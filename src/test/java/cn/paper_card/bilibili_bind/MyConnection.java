@@ -51,12 +51,12 @@ class MyConnection implements DatabaseApi.MySqlConnection {
     }
 
     @Override
-    public void close() throws SQLException {
+    public void close() {
 
     }
 
     @Override
-    public void handleException(@NotNull SQLException e) throws SQLException {
+    public void handleException(@NotNull SQLException e) {
 
     }
 }

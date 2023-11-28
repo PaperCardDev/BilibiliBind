@@ -1,5 +1,6 @@
 package cn.paper_card.bilibili_bind;
 
+import cn.paper_card.bilibili_bind.api.BindCodeInfo;
 import org.junit.*;
 
 import java.sql.SQLException;
@@ -31,16 +32,16 @@ public class TestBindCodeServiceImpl {
         final int code = service.createCode(uuid, name);
 
         // 取出
-        final BilibiliBindApi.BindCodeInfo info = service.takeByCode(code);
+        final BindCodeInfo info = service.takeByCode(code);
         Assert.assertNotNull(info);
         Assert.assertEquals(uuid, info.uuid());
         Assert.assertEquals(code, info.code());
         Assert.assertEquals(name, info.name());
 
         // 再次取出
-        final BilibiliBindApi.BindCodeInfo info1 = service.takeByCode(code);
+        final BindCodeInfo info1 = service.takeByCode(code);
         Assert.assertNull(info1);
-        final BilibiliBindApi.BindCodeInfo info2 = service.takeByUuid(uuid);
+        final BindCodeInfo info2 = service.takeByUuid(uuid);
         Assert.assertNull(info2);
 
         final int clean = service.close();
@@ -93,7 +94,7 @@ public class TestBindCodeServiceImpl {
 
         Thread.sleep(delay);
 
-        final BilibiliBindApi.BindCodeInfo info = service.takeByCode(code);
+        final BindCodeInfo info = service.takeByCode(code);
         if (delay < maxAliveTime) {
             Assert.assertNotNull(info);
         } else {

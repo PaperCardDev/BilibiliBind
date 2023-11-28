@@ -1,5 +1,8 @@
 package cn.paper_card.bilibili_bind;
 
+import cn.paper_card.bilibili_bind.api.BindInfo;
+import cn.paper_card.bilibili_bind.api.exception.AlreadyBoundException;
+import cn.paper_card.bilibili_bind.api.exception.UidHasBeenBoundException;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -24,11 +27,11 @@ public class TestBindServiceImpl {
     }
 
     @Test
-    public void test1() throws SQLException, BilibiliBindApi.UidHasBeenBindException, BilibiliBindApi.AlreadyBindException {
+    public void test1() throws SQLException, UidHasBeenBoundException, AlreadyBoundException {
 
         final BindServiceImpl bindService = new BindServiceImpl(connection);
 
-        final BilibiliBindApi.BindInfo testInfo = new BilibiliBindApi.BindInfo(
+        final BindInfo testInfo = new BindInfo(
                 UUID.randomUUID(),
                 "Paper99",
                 123456,
@@ -64,21 +67,21 @@ public class TestBindServiceImpl {
     }
 
     @Test
-    public void testAlreadyBind() throws SQLException, BilibiliBindApi.UidHasBeenBindException, BilibiliBindApi.AlreadyBindException {
+    public void testAlreadyBind() throws SQLException, UidHasBeenBoundException, AlreadyBoundException {
         final BindServiceImpl service = new BindServiceImpl(this.connection);
 
-        final BilibiliBindApi.BindInfo test = new BilibiliBindApi.BindInfo(UUID.randomUUID(),
+        final BindInfo test = new BindInfo(UUID.randomUUID(),
                 "Paper99", new Random().nextLong(99999999), "Test", System.currentTimeMillis());
 
         // 先删除
         {
-            final BilibiliBindApi.BindInfo tmp = service.queryByUuid(test.uuid());
+            final BindInfo tmp = service.queryByUuid(test.uuid());
             if (tmp != null) {
                 final boolean removed = service.removeBind(tmp.uuid(), tmp.uid());
                 Assert.assertTrue(removed);
             }
 
-            final BilibiliBindApi.BindInfo tmp2 = service.queryByUid(test.uid());
+            final BindInfo tmp2 = service.queryByUid(test.uid());
             if (tmp2 != null) {
                 final boolean removed = service.removeBind(tmp2.uuid(), tmp2.uid());
                 Assert.assertTrue(removed);
@@ -93,8 +96,8 @@ public class TestBindServiceImpl {
         try {
             service.addBind(test);
             throw new RuntimeException("没有异常！");
-        } catch (BilibiliBindApi.AlreadyBindException e) {
-            final BilibiliBindApi.BindInfo bindInfo = e.getBindInfo();
+        } catch (AlreadyBoundException e) {
+            final BindInfo bindInfo = e.getBindInfo();
             Assert.assertEquals(test, bindInfo);
         }
 

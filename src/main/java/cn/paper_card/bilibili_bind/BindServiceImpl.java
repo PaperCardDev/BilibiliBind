@@ -1,5 +1,9 @@
 package cn.paper_card.bilibili_bind;
 
+import cn.paper_card.bilibili_bind.api.BindInfo;
+import cn.paper_card.bilibili_bind.api.BindService;
+import cn.paper_card.bilibili_bind.api.exception.AlreadyBoundException;
+import cn.paper_card.bilibili_bind.api.exception.UidHasBeenBoundException;
 import cn.paper_card.database.api.DatabaseApi;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -9,11 +13,7 @@ import java.sql.SQLException;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import cn.paper_card.bilibili_bind.BilibiliBindApi.BindInfo;
-import cn.paper_card.bilibili_bind.BilibiliBindApi.AlreadyBindException;
-import cn.paper_card.bilibili_bind.BilibiliBindApi.UidHasBeenBindException;
-
-class BindServiceImpl implements BilibiliBindApi.BindService {
+class BindServiceImpl implements BindService {
 
     record Cached(
             BindInfo info,
@@ -69,24 +69,10 @@ class BindServiceImpl implements BilibiliBindApi.BindService {
     }
 
     @Override
-    public void addBind(@NotNull BindInfo info) throws AlreadyBindException, UidHasBeenBindException, SQLException {
+    public void addBind(@NotNull BindInfo info) throws SQLException, AlreadyBoundException, UidHasBeenBoundException {
         synchronized (this.mySqlConnection) {
             try {
-                final BindTable t = this.getTable();
-
-                // 检查是否已经绑定
-                {
-                    final BindInfo info1 = t.queryByUuid(info.uuid());
-                    if (info1 != null) throw new AlreadyBindException(info1);
-                }
-
-                // 检查UID是否已经被绑定
-                {
-                    final BindInfo info1 = t.queryByUid(info.uid());
-                    if (info1 != null) throw new UidHasBeenBindException(info1);
-                }
-
-                final int inserted = t.insert(info);
+                final int inserted = insertBinding(info);
                 this.mySqlConnection.setLastUseTime();
 
                 // 清除旧的缓存
@@ -103,6 +89,28 @@ class BindServiceImpl implements BilibiliBindApi.BindService {
                 throw e;
             }
         }
+    }
+
+    private int insertBinding(@NotNull BindInfo info) throws SQLException, AlreadyBoundException, UidHasBeenBoundException {
+        final BindTable t = this.getTable();
+
+        // 检查是否已经绑定
+        {
+            final BindInfo info1 = t.queryByUuid(info.uuid());
+            if (info1 != null) throw new AlreadyBoundException(info1,
+                    "%s (%s) 已经绑定了B站UID：%d".formatted(
+                            info1.name(), info1.uuid().toString(), info1.uid()
+                    ));
+        }
+
+        // 检查UID是否已经被绑定
+        {
+            final BindInfo info1 = t.queryByUid(info.uid());
+            if (info1 != null) throw new UidHasBeenBoundException(info1,
+                    "UID[%d] 已经被 %s (%s) 绑定".formatted(info1.uid(), info1.name(), info1.uuid().toString()));
+        }
+
+        return t.insert(info);
     }
 
     @Override

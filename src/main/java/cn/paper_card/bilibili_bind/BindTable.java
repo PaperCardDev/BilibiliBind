@@ -1,5 +1,6 @@
 package cn.paper_card.bilibili_bind;
 
+import cn.paper_card.bilibili_bind.api.BindInfo;
 import cn.paper_card.database.api.Util;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -9,8 +10,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.UUID;
-
-import cn.paper_card.bilibili_bind.BilibiliBindApi.BindInfo;
 
 class BindTable {
     private static final String NAME = "bili_bind";
