@@ -4,6 +4,7 @@ import cn.paper_card.bilibili_bind.api.*;
 import cn.paper_card.bilibili_bind.api.exception.AlreadyBoundException;
 import cn.paper_card.bilibili_bind.api.exception.UidHasBeenBoundException;
 import cn.paper_card.database.api.DatabaseApi;
+import cn.paper_card.qq_bind.api.QqBindApi;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -18,6 +19,7 @@ import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 class BilibiliBindApiImpl implements BilibiliBindApi {
 
@@ -31,15 +33,18 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
 
     private final @NotNull ConfigManager configManager;
 
+    private final @NotNull Supplier<QqBindApi> qqBindApi;
+
     private BilibiliUtil.VideoInfo videoInfo = null;
 
     BilibiliBindApiImpl(@NotNull DatabaseApi.MySqlConnection important,
                         @NotNull DatabaseApi.MySqlConnection unimportant,
                         @NotNull Logger logger,
-                        @NotNull ConfigManager configManager
-    ) {
+                        @NotNull ConfigManager configManager,
+                        @NotNull Supplier<QqBindApi> qqBindApi) {
         this.logger = logger;
         this.configManager = configManager;
+        this.qqBindApi = qqBindApi;
 
         this.bilibiliUtil = new BilibiliUtil();
 
@@ -485,5 +490,81 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         }
 
         return this.kickBindOk(name, uuid.toString(), matchReply.name(), "%d".formatted(matchReply.uid()));
+    }
+
+    @Override
+    public @Nullable String onMainGroupMessage(@NotNull String message, long senderQq) {
+
+        final int count = this.bindCodeService.getCount();
+        if (count <= 0) return null;
+
+        try {
+            final int cleaned = this.bindCodeService.cleanOutdated();
+            getLogger().info("清理了%d个过期的Bilibili绑定验证码".formatted(cleaned));
+        } catch (SQLException e) {
+            this.handleException("clean outdated binding code", e);
+            return null;
+        }
+
+        final int code;
+        try {
+            code = Integer.parseInt(message);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+
+        final BindCodeInfo bindCodeInfo;
+
+        try {
+            bindCodeInfo = this.bindCodeService.takeByCode(code);
+        } catch (SQLException e) {
+            this.handleException("take by code", e);
+            return null;
+        }
+
+        if (bindCodeInfo == null) return null;
+
+        // QQ绑定？
+        final QqBindApi api = this.qqBindApi.get();
+        if (api == null) {
+            return "已使玩家%s的Bilibili绑定验证码失效\n应该发在B站指定视频的评论区，而不是QQ群！".formatted(bindCodeInfo.name());
+        }
+
+        final cn.paper_card.qq_bind.api.BindInfo qqBind;
+
+        try {
+            qqBind = api.getBindService().queryByQq(senderQq);
+        } catch (Exception e) {
+            handleException("qq bind -> query by qq", e);
+            return null;
+        }
+
+        // QQ已经被绑定了
+        if (qqBind != null) {
+            return "已使玩家%s的Bilibili绑定验证码失效\n应该发在B站指定视频的评论区，而不是QQ群！".formatted(bindCodeInfo.name());
+        }
+
+        // 没有绑定，添加QQ绑定
+        final cn.paper_card.qq_bind.api.BindInfo qqBindNew = new cn.paper_card.qq_bind.api.BindInfo(
+                bindCodeInfo.uuid(),
+                bindCodeInfo.name(),
+                senderQq,
+                "bilibili绑定验证码",
+                System.currentTimeMillis()
+        );
+
+        try {
+            api.getBindService().addBind(qqBindNew);
+        } catch (Exception e) {
+            handleException("qq bind -> add bind", e);
+            return e.toString();
+        }
+
+        return """
+                已使该Bilibili绑定验证码失效
+                应该发在B站指定视频的评论区，而不是QQ群！
+                已为你添加了QQ绑定
+                游戏名：%s
+                如果绑定错误，请联系管理员""".formatted(qqBindNew.name());
     }
 }

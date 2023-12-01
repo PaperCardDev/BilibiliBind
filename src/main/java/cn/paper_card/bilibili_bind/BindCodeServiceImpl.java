@@ -3,6 +3,7 @@ package cn.paper_card.bilibili_bind;
 import cn.paper_card.bilibili_bind.api.BindCodeInfo;
 import cn.paper_card.bilibili_bind.api.BindCodeService;
 import cn.paper_card.database.api.DatabaseApi;
+import cn.paper_card.database.api.Parser;
 import cn.paper_card.database.api.Util;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -13,8 +14,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class BindCodeServiceImpl implements BindCodeService {
+
+    private final AtomicInteger count = new AtomicInteger(-1);
+
     BindCodeServiceImpl(@NotNull DatabaseApi.MySqlConnection mySqlConnection, long maxAliveTime) {
         this.mySqlConnection = mySqlConnection;
         this.maxAliveTime = maxAliveTime;
@@ -39,6 +44,7 @@ class BindCodeServiceImpl implements BindCodeService {
         this.connection = newCon;
         if (this.table != null) this.table.close();
         this.table = new BindCodeTable(this.connection);
+        this.count.set(this.table.queryCount());
         return this.table;
     }
 
@@ -102,9 +108,13 @@ class BindCodeServiceImpl implements BindCodeService {
                     final int inserted = t.insert(info);
                     this.mySqlConnection.setLastUseTime();
 
+                    this.count.set(t.queryCount());
+
                     if (inserted != 1) throw new RuntimeException("插入了%d条数据！".formatted(inserted));
                     return code;
                 }
+
+                this.count.set(t.queryCount());
 
                 if (updated == 1) return code;
 
@@ -134,6 +144,8 @@ class BindCodeServiceImpl implements BindCodeService {
 
                 if (deleted != 1) throw new RuntimeException("删除了%d条数据！".formatted(deleted));
 
+                this.count.set(t.queryCount());
+
                 // 判断验证码是否过期
                 final long delta = System.currentTimeMillis() - info.time();
                 if (delta > this.maxAliveTime) return null;
@@ -161,6 +173,8 @@ class BindCodeServiceImpl implements BindCodeService {
                 // 删除
                 final int deleted = t.deleteByCode(info.code());
 
+                this.count.set(t.queryCount());
+
                 if (deleted != 1) throw new RuntimeException("删除了%d条数据！".formatted(deleted));
 
                 // 检查是否过期
@@ -187,6 +201,9 @@ class BindCodeServiceImpl implements BindCodeService {
             try {
                 final BindCodeTable t = this.getTable();
                 final int deleted = t.deleteTimeBefore(begin);
+
+                this.count.set(t.queryCount());
+
                 this.mySqlConnection.setLastUseTime();
 
                 return deleted;
@@ -200,6 +217,9 @@ class BindCodeServiceImpl implements BindCodeService {
         }
     }
 
+    int getCount() {
+        return this.count.get();
+    }
 
     static class BindCodeTable {
 
@@ -215,6 +235,8 @@ class BindCodeServiceImpl implements BindCodeService {
         private PreparedStatement statementDeleteTimeBefore = null;
 
         private PreparedStatement statementQueryByUuid = null;
+
+        private PreparedStatement statementQueryCount = null;
 
         private final static String NAME = "bili_bind_code";
 
@@ -292,6 +314,14 @@ class BindCodeServiceImpl implements BindCodeService {
             return this.statementQueryByUuid;
         }
 
+        private @NotNull PreparedStatement getStatementQueryCount() throws SQLException {
+            if (this.statementQueryCount == null) {
+                this.statementQueryCount = this.connection.prepareStatement
+                        ("SELECT count(*) FROM %s".formatted(NAME));
+            }
+            return this.statementQueryCount;
+        }
+
         int insert(@NotNull BindCodeInfo info) throws SQLException {
             final PreparedStatement ps = this.getStatementInsert();
             ps.setInt(1, info.code());
@@ -367,6 +397,12 @@ class BindCodeServiceImpl implements BindCodeService {
             final PreparedStatement ps = this.getStatementDeleteTimeBefore();
             ps.setLong(1, time);
             return ps.executeUpdate();
+        }
+
+        int queryCount() throws SQLException {
+            final PreparedStatement ps = this.getStatementQueryCount();
+            final ResultSet resultSet = ps.executeQuery();
+            return Parser.parseOneInt(resultSet);
         }
     }
 }

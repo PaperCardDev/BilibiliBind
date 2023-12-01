@@ -23,7 +23,7 @@ public class TestBilibiliBindApi {
         api = new BilibiliBindApiImpl(connection,
                 connection,
                 LoggerFactory.getLogger("Test"),
-                config);
+                config, () -> null);
     }
 
     @After

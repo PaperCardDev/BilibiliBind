@@ -4,6 +4,7 @@ import cn.paper_card.MojangProfileApi;
 import cn.paper_card.bilibili_bind.api.BilibiliBindApi;
 import cn.paper_card.bilibili_bind.api.BindInfo;
 import cn.paper_card.database.api.DatabaseApi;
+import cn.paper_card.qq_bind.api.QqBindApi;
 import com.github.Anon8281.universalScheduler.UniversalScheduler;
 import com.github.Anon8281.universalScheduler.scheduling.schedulers.TaskScheduler;
 import net.kyori.adventure.text.Component;
@@ -32,6 +33,8 @@ public class ThePlugin extends JavaPlugin {
 
     private final @NotNull MojangProfileApi mojangProfileApi;
 
+    private QqBindApi qqBindApi = null;
+
     public ThePlugin() {
 
         this.taskScheduler = UniversalScheduler.getScheduler(this);
@@ -59,8 +62,8 @@ public class ThePlugin extends JavaPlugin {
                 api.getRemoteMySQL().getConnectionImportant(),
                 api.getRemoteMySQL().getConnectionUnimportant(),
                 this.getSLF4JLogger(),
-                configManager
-        );
+                configManager,
+                () -> this.qqBindApi);
 
         this.getSLF4JLogger().info("注册%s...".formatted(BilibiliBindApi.class.getSimpleName()));
 
@@ -74,6 +77,11 @@ public class ThePlugin extends JavaPlugin {
         new TheCommand(this);
 
         this.bilibiliBindApi.testBilibili();
+
+        this.qqBindApi = this.getServer().getServicesManager().load(QqBindApi.class);
+        if (this.qqBindApi != null) {
+            this.getSLF4JLogger().info("已连接到" + QqBindApi.class.getSimpleName());
+        }
     }
 
     @Override
