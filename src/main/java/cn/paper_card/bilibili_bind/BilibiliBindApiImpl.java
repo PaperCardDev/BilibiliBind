@@ -365,18 +365,6 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
             return this.kickWhenException(e);
         }
 
-        if (confrimCodeInfo != null) {
-            // todo: 没有存等级？
-            return this.kickConfirmCode(name, uuid,
-                    confrimCodeInfo.biliName(),
-                    confrimCodeInfo.uid(),
-                    "TODO: 忘了保存你的等级",
-                    confrimCodeInfo.code()
-            );
-        }
-
-        // 没有确认码
-
         // 查询绑定
         final BindInfo bindInfo;
 
@@ -388,10 +376,33 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
 
         // 已经绑定
         if (bindInfo != null) {
+
+            // 回收确认码
+            if (confrimCodeInfo != null) {
+                try {
+                    final ConfirmCodeService.Info i = this.getConfirmCodeService().takeCode(confrimCodeInfo.code());
+                    if (i != null) this.getLogger().info("回收%s的确认验证码：%d".formatted(i.name(), i.code()));
+                } catch (SQLException e) {
+                    return this.kickWhenException(e);
+                }
+            }
+
             return new PreLoginResponse(true, null);
         }
 
         // 没有绑定B站账号
+
+        if (confrimCodeInfo != null) {
+            // todo: 没有存等级？
+            return this.kickConfirmCode(name, uuid,
+                    confrimCodeInfo.biliName(),
+                    confrimCodeInfo.uid(),
+                    "TODO: 忘了保存你的等级",
+                    confrimCodeInfo.code()
+            );
+        }
+
+        // 没有确认码
 
         // 检查是否有绑定验证码
         final BindCodeInfo bindCodeInfo;
