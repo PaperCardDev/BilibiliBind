@@ -291,7 +291,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         return new PreLoginResponse(false, text.build());
     }
 
-    private @NotNull PreLoginResponse kickUidHasBeenBind(@NotNull BindInfo info, @NotNull String biliName) {
+    private @NotNull PreLoginResponse kickUidHasBeenBind(@NotNull BindInfo info, @NotNull String biliName, @NotNull String name, @NotNull UUID uuid) {
         // 已经被绑定
 
         final TextComponent.Builder text = Component.text();
@@ -302,6 +302,9 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
 
         text.appendNewline();
         text.append(Component.text("他的游戏角色：%s (%s)".formatted(info.name(), info.uuid().toString())).color(NamedTextColor.GRAY));
+
+        text.appendNewline();
+        text.append(Component.text("你的游戏角色：%s (%s)".formatted(name, uuid.toString())).color(NamedTextColor.GRAY));
 
         return new PreLoginResponse(false, text.build());
     }
@@ -484,7 +487,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
             // 不应该出现的
             return this.kickWhenException(e);
         } catch (UidHasBeenBoundException e) {
-            return this.kickUidHasBeenBind(e.getBindInfo(), matchReply.name());
+            return this.kickUidHasBeenBind(e.getBindInfo(), matchReply.name(), name, uuid);
         } catch (SQLException e) {
             return this.kickWhenException(e);
         }
@@ -500,7 +503,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
 
         try {
             final int cleaned = this.bindCodeService.cleanOutdated();
-            getLogger().info("清理了%d个过期的Bilibili绑定验证码".formatted(cleaned));
+            getLogger().info("清理了%d个过期的Bilibili绑定验证码，剩余验证码：%d".formatted(cleaned, this.bindCodeService.getCount()));
         } catch (SQLException e) {
             this.handleException("clean outdated binding code", e);
             return null;
