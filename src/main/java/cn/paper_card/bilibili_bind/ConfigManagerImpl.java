@@ -18,6 +18,11 @@ class ConfigManagerImpl implements ConfigManager {
     }
 
     @Override
+    public int getAllowMinLevel() {
+        return this.plugin.getConfig().getInt("allow-min-level", this.aDefault.getAllowMinLevel());
+    }
+
+    @Override
     public @NotNull String getReplyFormat() {
         return this.plugin.getConfig().getString("reply-format", this.aDefault.getReplyFormat());
     }

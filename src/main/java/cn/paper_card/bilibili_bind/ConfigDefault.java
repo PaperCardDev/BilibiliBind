@@ -9,6 +9,11 @@ class ConfigDefault implements ConfigManager {
     }
 
     @Override
+    public int getAllowMinLevel() {
+        return 2;
+    }
+
+    @Override
     public @NotNull String getReplyFormat() {
         return "白名单验证码%code%已三连";
     }

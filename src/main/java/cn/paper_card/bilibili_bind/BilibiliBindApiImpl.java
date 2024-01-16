@@ -463,7 +463,8 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         if (matchReply == null) return this.kickReplyNotFound(bindCodeInfo.code());
 
         // 检查账号等级和大会员
-        if (matchReply.level() < 4 && !matchReply.isVip()) {
+        final int allowMinLevel = this.configManager.getAllowMinLevel();
+        if (matchReply.level() < allowMinLevel && !matchReply.isVip()) {
 
             final int confirmCode;
 

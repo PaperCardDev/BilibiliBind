@@ -82,6 +82,9 @@ public class ThePlugin extends JavaPlugin {
         if (this.qqBindApi != null) {
             this.getSLF4JLogger().info("已连接到" + QqBindApi.class.getSimpleName());
         }
+
+        // 保存默认配置（如果配置不存在）
+        this.saveDefaultConfig();
     }
 
     @Override
@@ -90,6 +93,9 @@ public class ThePlugin extends JavaPlugin {
         this.getServer().getServicesManager().unregisterAll(this);
 
         this.bilibiliBindApi.close();
+
+        // 保存配置文件
+        this.saveConfig();
     }
 
     @Nullable MojangProfileApi.Profile parseArgPlayer(@NotNull String argPlayer) {
