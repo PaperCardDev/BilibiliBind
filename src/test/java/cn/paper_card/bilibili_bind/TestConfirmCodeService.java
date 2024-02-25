@@ -18,7 +18,7 @@ public class TestConfirmCodeService {
     }
 
     @After
-    public void cleanup() throws SQLException {
+    public void cleanup() {
         connection.close();
     }
 

@@ -2,10 +2,13 @@ package cn.paper_card.bilibili_bind;
 
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collections;
+import java.util.List;
+
 class ConfigDefault implements ConfigManager {
     @Override
-    public @NotNull String getBvid() {
-        return "";
+    public @NotNull List<String> getBvid() {
+        return Collections.emptyList();
     }
 
     @Override

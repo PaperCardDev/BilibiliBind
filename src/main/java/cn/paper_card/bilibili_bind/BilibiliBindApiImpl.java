@@ -17,8 +17,7 @@ import org.slf4j.Logger;
 
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.function.Supplier;
 
 class BilibiliBindApiImpl implements BilibiliBindApi {
@@ -31,16 +30,16 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
 
     private final @NotNull Logger logger;
 
-    private final @NotNull ConfigManager configManager;
+    private final @NotNull ConfigManagerImpl configManager;
 
     private final @NotNull Supplier<QqBindApi> qqBindApi;
 
-    private BilibiliUtil.VideoInfo videoInfo = null;
+    private final @NotNull HashMap<String, BilibiliUtil.VideoInfo> videoInfos;
 
     BilibiliBindApiImpl(@NotNull DatabaseApi.MySqlConnection important,
                         @NotNull DatabaseApi.MySqlConnection unimportant,
                         @NotNull Logger logger,
-                        @NotNull ConfigManager configManager,
+                        @NotNull ConfigManagerImpl configManager,
                         @NotNull Supplier<QqBindApi> qqBindApi) {
         this.logger = logger;
         this.configManager = configManager;
@@ -51,18 +50,9 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         this.bindService = new BindServiceImpl(important);
         this.bindCodeService = new BindCodeServiceImpl(unimportant);
         this.confirmCodeService = new ConfirmCodeService(unimportant);
+        this.videoInfos = new HashMap<>();
     }
 
-    @NotNull BilibiliUtil.VideoInfo getVideoInfo() throws Exception {
-        if (this.videoInfo == null) {
-            final String bvid = this.configManager.getBvid();
-            if (!bvid.isEmpty())
-                this.videoInfo = this.bilibiliUtil.requestVideoByBvid(bvid);
-            else
-                throw new Exception("服主没有配置B站视频链接");
-        }
-        return this.videoInfo;
-    }
 
     void handleException(@NotNull String msg, @NotNull Throwable e) {
         this.logger.error(msg, e);
@@ -72,30 +62,86 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         return this.logger;
     }
 
-    void setVideoInfo() {
-        this.videoInfo = null;
+    void updateAllVideoInfo() {
+        final List<String> list = this.configManager.getBvid();
+
+        for (String bvid : list) {
+            if (bvid.isEmpty()) continue;
+            final BilibiliUtil.VideoInfo info;
+
+            try {
+                info = this.bilibiliUtil.requestVideoByBvid(bvid);
+            } catch (Exception e) {
+                this.logger.error("", e);
+                continue;
+            }
+
+            synchronized (this.videoInfos) {
+                this.videoInfos.put(bvid, info);
+            }
+        }
+    }
+
+    @Nullable BilibiliUtil.Reply findReply(int code) throws Exception {
+        final List<BilibiliUtil.VideoInfo> list;
+        synchronized (this.videoInfos) {
+            list = new LinkedList<>(videoInfos.values());
+        }
+
+        for (final BilibiliUtil.VideoInfo info : list) {
+            final List<BilibiliUtil.Reply> replies;
+            replies = this.bilibiliUtil.requestLatestReplies(info.aid());
+            final BilibiliUtil.Reply r = this.findMatchReply(replies, code);
+            if (r != null) return r;
+        }
+        return null;
+    }
+
+    @NotNull BilibiliUtil.VideoInfo getFirstVideoInfo() throws Exception {
+        final List<String> list = this.configManager.getBvid();
+        if (list.isEmpty()) throw new Exception("没有配置用于验证的B站视频！");
+
+        final String id = list.get(0);
+
+        synchronized (this.videoInfos) {
+            final BilibiliUtil.VideoInfo info = this.videoInfos.get(id);
+            if (info != null) return info;
+        }
+
+        final BilibiliUtil.VideoInfo info = this.bilibiliUtil.requestVideoByBvid(id);
+
+        synchronized (this.videoInfos) {
+            this.videoInfos.put(id, info);
+        }
+
+        return info;
     }
 
     void testBilibili() {
 
-        final BilibiliUtil.VideoInfo videoInfo;
-        try {
-            videoInfo = this.getVideoInfo();
-        } catch (Exception e) {
-            this.handleException("getVideoInfo", e);
-            return;
+        this.updateAllVideoInfo();
+
+        BilibiliUtil.VideoInfo first = null;
+
+        synchronized (this.videoInfos) {
+
+            for (BilibiliUtil.VideoInfo videoInfo : this.videoInfos.values()) {
+
+                if (first == null) first = videoInfo;
+
+                this.getLogger().info("VideoInfo {aid: %d, title: %s, ownerId: %d, ownerName: %s}".formatted(
+                        videoInfo.aid(), videoInfo.title(), videoInfo.ownerId(), videoInfo.ownerName()
+                ));
+            }
         }
 
-        this.getLogger().info("VideoInfo {aid: %d, title: %s, ownerId: %d, ownerName: %s}".formatted(
-                videoInfo.aid(), videoInfo.title(), videoInfo.ownerId(), videoInfo.ownerName()
-        ));
-
+        if (first == null) return;
 
         // 爬取评论测试
         final List<BilibiliUtil.Reply> replies;
 
         try {
-            replies = this.bilibiliUtil.requestLatestReplies(videoInfo.aid());
+            replies = this.bilibiliUtil.requestLatestReplies(first.aid());
         } catch (Exception e) {
             this.handleException("requestLatestReplies", e);
             return;
@@ -125,7 +171,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         return this.bindCodeService;
     }
 
-    @NotNull ConfigManager getConfigManager() {
+    @NotNull ConfigManagerImpl getConfigManager() {
         return configManager;
     }
 
@@ -133,11 +179,16 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         return this.confirmCodeService;
     }
 
-    @NotNull BilibiliUtil getBilibiliUtil() {
-        return this.bilibiliUtil;
+    void init() {
+        this.configManager.setDefaults();
+        this.configManager.save();
+
+        this.testBilibili();
     }
 
     void close() {
+        this.configManager.save();
+
         try {
             this.bindService.close();
         } catch (SQLException e) {
@@ -424,7 +475,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         // 获取视频信息
         final BilibiliUtil.VideoInfo videoInfo;
         try {
-            videoInfo = this.getVideoInfo();
+            videoInfo = this.getFirstVideoInfo();
         } catch (Exception e) {
             return this.kickWhenException(e);
         }
@@ -448,17 +499,13 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         // todo: 节流
 
         // 已经生成绑定验证码了，检查绑定
-
-        final List<BilibiliUtil.Reply> replies;
+        final BilibiliUtil.Reply matchReply;
 
         try {
-            replies = this.bilibiliUtil.requestLatestReplies(videoInfo.aid());
+            matchReply = this.findReply(bindCodeInfo.code());
         } catch (Exception e) {
             return this.kickWhenException(e);
         }
-
-        final BilibiliUtil.Reply matchReply = this.findMatchReply(replies, bindCodeInfo.code());
-
 
         if (matchReply == null) return this.kickReplyNotFound(bindCodeInfo.code());
 

@@ -539,12 +539,20 @@ class TheCommand extends TheMcCommand.HasSub {
 
             plugin.getTaskScheduler().runTaskAsynchronously(() -> {
 
+                final BilibiliBindApiImpl api = plugin.getBilibiliBindApi();
+
+                final List<String> list = api.getConfigManager().getBvid();
+                if (list.isEmpty()) {
+                    plugin.sendError(commandSender, "没有配置用于验证的B站视频");
+                    return;
+                }
+
                 final BindInfo bindInfo;
 
                 try {
-                    bindInfo = plugin.getBilibiliBindApi().getBindService().queryByUuid(player.getUniqueId());
+                    bindInfo = api.getBindService().queryByUuid(player.getUniqueId());
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException("code command -> bind service -> query by uuid", e);
+                    api.handleException("code command -> bind service -> query by uuid", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -558,15 +566,14 @@ class TheCommand extends TheMcCommand.HasSub {
                 final int code;
 
                 try {
-                    code = plugin.getBilibiliBindApi().getBindCodeService().createCode(player.getUniqueId(), player.getName());
+                    code = api.getBindCodeService().createCode(player.getUniqueId(), player.getName());
                 } catch (Exception e) {
                     plugin.getBilibiliBindApi().handleException("code command -> bind code service -> create code", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
 
-
-                final String str = plugin.getBilibiliBindApi().getConfigManager().getReplay(code);
+                final String str = api.getConfigManager().getReplay(code);
 
                 final TextComponent.Builder text = Component.text();
                 text.append(Component.text(str)
@@ -575,7 +582,7 @@ class TheCommand extends TheMcCommand.HasSub {
                         .hoverEvent(HoverEvent.showText(Component.text("点击复制")))
                 );
 
-                final String bvid = plugin.getBilibiliBindApi().getConfigManager().getBvid();
+                final String bvid = list.get(0);
 
                 if (!bvid.isEmpty()) {
                     final String link = BilibiliUtil.getVideoLink(bvid);
@@ -635,8 +642,10 @@ class TheCommand extends TheMcCommand.HasSub {
             plugin.getTaskScheduler().runTaskAsynchronously(() -> {
                 final BindCodeInfo bindCodeInfo;
 
+                final BilibiliBindApiImpl api = plugin.getBilibiliBindApi();
+
                 try {
-                    bindCodeInfo = plugin.getBilibiliBindApi().getBindCodeService().takeByUuid(player.getUniqueId());
+                    bindCodeInfo = api.getBindCodeService().takeByUuid(player.getUniqueId());
                 } catch (Exception e) {
                     plugin.getBilibiliBindApi().handleException("check command -> bind code service -> take by uuid", e);
                     plugin.sendException(commandSender, e);
@@ -648,28 +657,17 @@ class TheCommand extends TheMcCommand.HasSub {
                     return;
                 }
 
+                final BilibiliUtil.Reply matchReply;
+
                 // 扫描评论区
-                final BilibiliUtil.VideoInfo videoInfo;
-
                 try {
-                    videoInfo = plugin.getBilibiliBindApi().getVideoInfo();
+                    matchReply = api.findReply(bindCodeInfo.code());
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException("check command -> getVideoInfo", e);
+                    api.handleException("check command -> getVideoInfo", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
 
-                final List<BilibiliUtil.Reply> replies;
-
-                try {
-                    replies = plugin.getBilibiliBindApi().getBilibiliUtil().requestLatestReplies(videoInfo.aid());
-                } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException("check command -> requestLatestReplies", e);
-                    plugin.sendException(commandSender, e);
-                    return;
-                }
-
-                final BilibiliUtil.Reply matchReply = plugin.getBilibiliBindApi().findMatchReply(replies, bindCodeInfo.code());
 
                 if (matchReply == null) {
                     plugin.sendWarning(commandSender, "在视频的评论区未找到指定评论");
@@ -683,12 +681,12 @@ class TheCommand extends TheMcCommand.HasSub {
                         System.currentTimeMillis());
 
                 try {
-                    plugin.getBilibiliBindApi().getBindService().addBind(info);
+                    api.getBindService().addBind(info);
                 } catch (AlreadyBoundException | UidHasBeenBoundException e) {
                     plugin.sendWarning(commandSender, e.getMessage());
                     return;
                 } catch (Exception e) {
-                    plugin.getBilibiliBindApi().handleException("check command -> bind service -> add bind", e);
+                    api.handleException("check command -> bind service -> add bind", e);
                     plugin.sendException(commandSender, e);
                     return;
                 }
@@ -722,10 +720,13 @@ class TheCommand extends TheMcCommand.HasSub {
 
         @Override
         public boolean onCommand(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String[] strings) {
-            plugin.reloadConfig();
-            plugin.getBilibiliBindApi().setVideoInfo(); // 清除缓存
-            plugin.getBilibiliBindApi().getBindService().clearCache(); // 清除缓存
-            plugin.sendInfo(commandSender, "已重载配置");
+            plugin.getTaskScheduler().runTaskAsynchronously(() -> {
+                final BilibiliBindApiImpl api = plugin.getBilibiliBindApi();
+                api.getBindService().clearCache(); // 清除缓存
+                api.getConfigManager().reload();
+                api.updateAllVideoInfo();
+                plugin.sendInfo(commandSender, "已重载配置、清除缓存");
+            });
             return true;
         }
 
