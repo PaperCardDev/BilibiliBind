@@ -6,7 +6,7 @@
 
     <groupId>cn.paper_card</groupId>
     <artifactId>BilibiliBind</artifactId>
-    <version>1.1</version>
+    <version>1.2</version>
     <packaging>jar</packaging>
 
     <name>BilibiliBind</name>
@@ -121,14 +121,21 @@
         <dependency>
             <groupId>com.github.PaperCardDev</groupId>
             <artifactId>database-api</artifactId>
-            <version>1.1</version>
+            <version>1.2</version>
             <scope>provided</scope>
         </dependency>
 
         <dependency>
             <groupId>com.github.PaperCardDev</groupId>
             <artifactId>qq-bind-api</artifactId>
-            <version>1.1</version>
+            <version>1.3</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.github.PaperCardDev</groupId>
+            <artifactId>qq-group-access-api</artifactId>
+            <version>1.2.1</version>
             <scope>provided</scope>
         </dependency>
 

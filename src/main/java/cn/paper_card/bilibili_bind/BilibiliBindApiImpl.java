@@ -5,6 +5,8 @@ import cn.paper_card.bilibili_bind.api.exception.AlreadyBoundException;
 import cn.paper_card.bilibili_bind.api.exception.UidHasBeenBoundException;
 import cn.paper_card.database.api.DatabaseApi;
 import cn.paper_card.qq_bind.api.QqBindApi;
+import cn.paper_card.qq_group_access.api.GroupAccess;
+import cn.paper_card.qq_group_access.api.QqGroupAccessApi;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -17,7 +19,10 @@ import org.slf4j.Logger;
 
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 class BilibiliBindApiImpl implements BilibiliBindApi {
@@ -34,23 +39,27 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
 
     private final @NotNull Supplier<QqBindApi> qqBindApi;
 
-    private final @NotNull HashMap<String, BilibiliUtil.VideoInfo> videoInfos;
+    private final @NotNull Supplier<QqGroupAccessApi> qqGroupAccessApi;
+
+    private final @NotNull HashMap<String, BilibiliUtil.VideoInfo> videoInfo;
 
     BilibiliBindApiImpl(@NotNull DatabaseApi.MySqlConnection important,
                         @NotNull DatabaseApi.MySqlConnection unimportant,
                         @NotNull Logger logger,
                         @NotNull ConfigManagerImpl configManager,
-                        @NotNull Supplier<QqBindApi> qqBindApi) {
+                        @NotNull Supplier<QqBindApi> qqBindApi,
+                        @NotNull Supplier<QqGroupAccessApi> qqGroupAccessApi) {
         this.logger = logger;
         this.configManager = configManager;
         this.qqBindApi = qqBindApi;
+        this.qqGroupAccessApi = qqGroupAccessApi;
 
         this.bilibiliUtil = new BilibiliUtil();
 
         this.bindService = new BindServiceImpl(important);
         this.bindCodeService = new BindCodeServiceImpl(unimportant);
         this.confirmCodeService = new ConfirmCodeService(unimportant);
-        this.videoInfos = new HashMap<>();
+        this.videoInfo = new HashMap<>();
     }
 
 
@@ -76,16 +85,16 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
                 continue;
             }
 
-            synchronized (this.videoInfos) {
-                this.videoInfos.put(bvid, info);
+            synchronized (this.videoInfo) {
+                this.videoInfo.put(bvid, info);
             }
         }
     }
 
     @Nullable BilibiliUtil.Reply findReply(int code) throws Exception {
         final List<BilibiliUtil.VideoInfo> list;
-        synchronized (this.videoInfos) {
-            list = new LinkedList<>(videoInfos.values());
+        synchronized (this.videoInfo) {
+            list = new LinkedList<>(videoInfo.values());
         }
 
         for (final BilibiliUtil.VideoInfo info : list) {
@@ -103,15 +112,15 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
 
         final String id = list.get(0);
 
-        synchronized (this.videoInfos) {
-            final BilibiliUtil.VideoInfo info = this.videoInfos.get(id);
+        synchronized (this.videoInfo) {
+            final BilibiliUtil.VideoInfo info = this.videoInfo.get(id);
             if (info != null) return info;
         }
 
         final BilibiliUtil.VideoInfo info = this.bilibiliUtil.requestVideoByBvid(id);
 
-        synchronized (this.videoInfos) {
-            this.videoInfos.put(id, info);
+        synchronized (this.videoInfo) {
+            this.videoInfo.put(id, info);
         }
 
         return info;
@@ -123,9 +132,9 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
 
         BilibiliUtil.VideoInfo first = null;
 
-        synchronized (this.videoInfos) {
+        synchronized (this.videoInfo) {
 
-            for (BilibiliUtil.VideoInfo videoInfo : this.videoInfos.values()) {
+            for (BilibiliUtil.VideoInfo videoInfo : this.videoInfo.values()) {
 
                 if (first == null) first = videoInfo;
 
@@ -179,7 +188,9 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         return this.confirmCodeService;
     }
 
-    void init() {
+    void
+
+    init() {
         this.configManager.setDefaults();
         this.configManager.save();
 
@@ -259,7 +270,14 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
     }
 
 
-    private @NotNull PreLoginResponse kickBindCode(int code, @NotNull BilibiliUtil.VideoInfo videoInfo) {
+    private @NotNull PreLoginResponse kickBindCode(int code,
+                                                   @NotNull BilibiliUtil.VideoInfo videoInfo,
+                                                   @NotNull String name,
+                                                   @NotNull UUID uuid,
+                                                   @Nullable cn.paper_card.qq_bind.api.BindInfo qqBind,
+                                                   @Nullable GroupAccess groupAccess
+    ) {
+
 
         final TextComponent.Builder text = Component.text();
         text.append(Component.text("[ Bilibili绑定 ]").color(NamedTextColor.AQUA));
@@ -275,9 +293,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         text.appendNewline();
         text.append(Component.text("请给最新宣传视频三连支持（长按点赞）并在评论区发送评论：").color(NamedTextColor.RED));
 
-
-        String reply = this.configManager.getReplyFormat();
-        reply = reply.replace("%code%", "%d".formatted(code));
+        final String reply = this.configManager.getReplay(code);
 
         text.appendNewline();
         text.append(Component.text(reply).color(NamedTextColor.GOLD));
@@ -296,20 +312,35 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
                 .hoverEvent(HoverEvent.showText(Component.text("点击打开")))
         );
 
-        text.appendNewline();
-        text.append(Component.text("视频标题：").color(NamedTextColor.GREEN));
-        text.append(Component.text(videoInfo.title()).color(NamedTextColor.GOLD));
+        if (qqBind == null && groupAccess != null) {
+            text.appendNewline();
+            text.append(Component.text("您未绑定QQ，可以直接将数字"));
+            text.append(Component.text(code).color(NamedTextColor.GOLD).decorate(TextDecoration.BOLD));
+            text.append(Component.text("发送到QQ群里进行绑定并获取该视频链接"));
+
+            text.appendNewline();
+            text.append(Component.text("QQ群："));
+            text.append(Component.text(groupAccess.getId()).color(NamedTextColor.LIGHT_PURPLE).decorate(TextDecoration.BOLD));
+        }
 
         text.appendNewline();
         text.append(Component.text("发布者：%s (%d)".formatted(videoInfo.ownerName(), videoInfo.ownerId())).color(NamedTextColor.GREEN));
 
         text.appendNewline();
-        text.append(Component.text("提示：可以通过B站的关键字搜索快速找到该视频").color(NamedTextColor.GREEN));
-
-        text.appendNewline();
         text.append(Component.text("成功三连并发布评论之后再次连接服务器即可~").color(NamedTextColor.GREEN));
 
-        return new PreLoginResponse(false, text.build());
+        if (qqBind != null) {
+            text.appendNewline();
+            text.append(Component.text("您的QQ：").color(NamedTextColor.GRAY));
+            text.append(Component.text(qqBind.qq()).color(NamedTextColor.GRAY));
+        }
+
+        text.appendNewline();
+        text.append(Component.text("游戏名：%s (%s)".formatted(
+                name, uuid.toString()
+        )).color(NamedTextColor.GRAY));
+
+        return new PreLoginResponse(false, text.build().color(NamedTextColor.GREEN));
     }
 
     private @NotNull PreLoginResponse kickReplyNotFound(int code) {
@@ -484,15 +515,56 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         if (bindCodeInfo == null) {
             // 没有生成绑定验证码，生成一个
 
-            final int code;
+            // QQ绑定
+            final QqBindApi qqBindApi1 = this.qqBindApi.get();
 
+            final cn.paper_card.qq_bind.api.BindInfo qqBindInfo;
+
+            if (qqBindApi1 != null) {
+                try {
+                    qqBindInfo = qqBindApi1.getBindService().queryByUuid(uuid);
+                } catch (Exception e) {
+                    return this.kickWhenException(e);
+                }
+            } else {
+                qqBindInfo = null;
+            }
+
+            // 绑定验证码
+            final int code;
             try {
                 code = this.bindCodeService.createCode(uuid, name);
             } catch (SQLException e) {
                 return this.kickWhenException(e);
             }
 
-            return this.kickBindCode(code, videoInfo);
+
+            // QQ群访问
+            final QqGroupAccessApi qqGroupAccessApi1 = this.qqGroupAccessApi.get();
+            GroupAccess groupAccess = null;
+            if (qqGroupAccessApi1 != null) {
+                try {
+                    groupAccess = qqGroupAccessApi1.createMainGroupAccess();
+                } catch (Exception e) {
+                    this.logger.warn(e.toString());
+                }
+            }
+
+            if (groupAccess != null && qqBindInfo != null) {
+                try {
+                    groupAccess.sendAtMessage(qqBindInfo.qq(), "B站视频：" + BilibiliUtil.getVideoLink(videoInfo.bvid()));
+                } catch (Exception e) {
+                    this.logger.error("", e);
+                }
+            }
+
+            return this.kickBindCode(code,
+                    videoInfo,
+                    name,
+                    uuid,
+                    qqBindInfo,
+                    groupAccess
+            );
         }
 
 
@@ -543,6 +615,31 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         return this.kickBindOk(name, uuid.toString(), matchReply.name(), "%d".formatted(matchReply.uid()));
     }
 
+    private StringBuilder getMessage(@NotNull String name) {
+
+        BilibiliUtil.VideoInfo info = null;
+        try {
+            info = this.getFirstVideoInfo();
+        } catch (Exception e) {
+            this.logger.warn("", e);
+        }
+
+        final StringBuilder sb = new StringBuilder();
+        sb.append("\n已使玩家 ");
+        sb.append(name);
+        sb.append(" 的Bilibili绑定验证码失效");
+        sb.append("\n应该发在B站指定视频的评论区，而不是QQ群！");
+        sb.append("\n请重新连接刷新验证码");
+
+        if (info != null) {
+            sb.append("\nB站视频链接：");
+            sb.append("\n");
+            sb.append(BilibiliUtil.getVideoLink(info.bvid()));
+        }
+
+        return sb;
+    }
+
     @Override
     public @Nullable String onMainGroupMessage(@NotNull String message, long senderQq) {
 
@@ -578,7 +675,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
         // QQ绑定？
         final QqBindApi api = this.qqBindApi.get();
         if (api == null) {
-            return "已使玩家%s的Bilibili绑定验证码失效\n应该发在B站指定视频的评论区，而不是QQ群！".formatted(bindCodeInfo.name());
+            return this.getMessage(bindCodeInfo.name()).toString();
         }
 
         final cn.paper_card.qq_bind.api.BindInfo qqBind;
@@ -592,7 +689,7 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
 
         // QQ已经被绑定了
         if (qqBind != null) {
-            return "已使玩家%s的Bilibili绑定验证码失效\n应该发在B站指定视频的评论区，而不是QQ群！".formatted(bindCodeInfo.name());
+            return this.getMessage(bindCodeInfo.name()).toString();
         }
 
         // 没有绑定，添加QQ绑定
@@ -611,11 +708,12 @@ class BilibiliBindApiImpl implements BilibiliBindApi {
             return e.toString();
         }
 
-        return """
-                已使该Bilibili绑定验证码失效
-                应该发在B站指定视频的评论区，而不是QQ群！
-                已为你添加了QQ绑定
-                游戏名：%s
-                如果绑定错误，请联系管理员""".formatted(qqBindNew.name());
+        final StringBuilder m = this.getMessage(bindCodeInfo.name());
+        m.append("\n已添加QQ绑定：");
+        m.append("\n游戏名：");
+        m.append(qqBindNew.name());
+        m.append("\n如果这不是你，请联系管理员");
+
+        return m.toString();
     }
 }

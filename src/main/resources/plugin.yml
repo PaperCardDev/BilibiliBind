@@ -8,6 +8,10 @@ folia-supported: true
 depend:
   - Database
 
+softdepend:
+  - PlayerQqBind
+  - QqGroupAccess
+
 commands:
   bili-bind:
     permission: bili-bind.command

@@ -5,6 +5,7 @@ import cn.paper_card.bilibili_bind.api.BilibiliBindApi;
 import cn.paper_card.bilibili_bind.api.BindInfo;
 import cn.paper_card.database.api.DatabaseApi;
 import cn.paper_card.qq_bind.api.QqBindApi;
+import cn.paper_card.qq_group_access.api.QqGroupAccessApi;
 import com.github.Anon8281.universalScheduler.UniversalScheduler;
 import com.github.Anon8281.universalScheduler.scheduling.schedulers.TaskScheduler;
 import net.kyori.adventure.text.Component;
@@ -35,6 +36,8 @@ public class ThePlugin extends JavaPlugin {
 
     private QqBindApi qqBindApi = null;
 
+    private QqGroupAccessApi qqGroupAccessApi = null;
+
     public ThePlugin() {
 
         this.taskScheduler = UniversalScheduler.getScheduler(this);
@@ -61,7 +64,9 @@ public class ThePlugin extends JavaPlugin {
                 api.getRemoteMySQL().getConnectionUnimportant(),
                 this.getSLF4JLogger(),
                 configManager,
-                () -> this.qqBindApi);
+                () -> this.qqBindApi,
+                () -> this.qqGroupAccessApi
+        );
 
         this.getSLF4JLogger().info("注册%s...".formatted(BilibiliBindApi.class.getSimpleName()));
 
@@ -79,6 +84,11 @@ public class ThePlugin extends JavaPlugin {
         this.qqBindApi = this.getServer().getServicesManager().load(QqBindApi.class);
         if (this.qqBindApi != null) {
             this.getSLF4JLogger().info("已连接到" + QqBindApi.class.getSimpleName());
+        }
+
+        this.qqGroupAccessApi = this.getServer().getServicesManager().load(QqGroupAccessApi.class);
+        if (this.qqGroupAccessApi != null) {
+            this.getSLF4JLogger().info("已连接到" + QqGroupAccessApi.class.getSimpleName());
         }
     }
 
